@@ -21,6 +21,9 @@ export default function Page() {
   const [voiceName, setVoiceName] = useState<string>('')
   const [speaking, setSpeaking] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance|null>(null)
+  const chunkIndexRef = useRef(0)
+  const chunkListRef = useRef<string[]>([])
+  const heartbeatRef = useRef<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
 
@@ -41,6 +44,7 @@ export default function Page() {
     synth.onvoiceschanged = updateVoices
     return () => {
       clearInterval(interval)
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current)
       synth.onvoiceschanged = null
     }
   }, [])
@@ -73,60 +77,96 @@ export default function Page() {
     }
   }
 
+  const stop = () => {
+    const synth = window.speechSynthesis
+    synth.cancel()
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    setSpeaking(false)
+    chunkIndexRef.current = 0
+  }
+
+  const playChunk = (index: number) => {
+    const synth = window.speechSynthesis
+    if (index >= chunkListRef.current.length) {
+      stop()
+      return
+    }
+
+    const text = chunkListRef.current[index]
+    const u = new SpeechSynthesisUtterance(text)
+    u.rate = rate
+    u.pitch = pitch
+    u.volume = 1
+
+    const v = voices.find(v => v.name === voiceName)
+    if (v) {
+      u.voice = v
+      u.lang = v.lang
+    } else {
+      u.lang = 'es-ES'
+    }
+
+    u.onend = () => {
+      chunkIndexRef.current = index + 1
+      playChunk(index + 1)
+    }
+
+    u.onerror = (e) => {
+      console.error("Chunk Error:", e)
+      chunkIndexRef.current = index + 1
+      playChunk(index + 1)
+    }
+
+    utteranceRef.current = u
+    synth.speak(u)
+  }
+
   const readAloud = () => {
     if (!data?.text) return
     const synth = window.speechSynthesis
-    
-    // Cancelar todo lo anterior
-    synth.cancel()
+    stop() // Limpiar todo antes de empezar
     setSpeaking(true)
 
-    // Delay un poco más largo para permitir que el motor de Android se limpie
+    // Preparar texto: Limpiar caracteres basura
+    const rawText = data.text.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").replace(/\s+/g, " ").trim();
+    
+    // Segmentar por frases (puntos, signos) para que Android no se sature
+    const regex = /[^.!?]+[.!?]+/g;
+    let initialChunks = rawText.match(regex) || [rawText];
+    
+    // Si una frase es muy larga (>400), dividirla más
+    const finalChunks: string[] = []
+    initialChunks.forEach(c => {
+      if (c.length > 400) {
+        const sub = c.match(/.{1,400}/g) || [c]
+        finalChunks.push(...sub)
+      } else {
+        finalChunks.push(c)
+      }
+    })
+    
+    chunkListRef.current = finalChunks.filter(c => c.trim().length > 0)
+    chunkIndexRef.current = 0
+
+    if (chunkListRef.current.length === 0) {
+      setSpeaking(false)
+      return
+    }
+
+    // Sistema Keep-Alive para Android: resume() preventivo cada 10s
+    heartbeatRef.current = setInterval(() => {
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.resume()
+      }
+    }, 10000)
+
+    // Iniciar con un pequeño delay y warmup
     setTimeout(() => {
-      // Warmup silencioso para "despertar" el canal de audio en móviles
       const warmup = new SpeechSynthesisUtterance("")
       warmup.volume = 0
       synth.speak(warmup)
-
-      // Limpieza de texto más agresiva para caracteres invisibles
-      const cleanText = data.text.slice(0, 80000)
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      if (!cleanText) {
-        setSpeaking(false);
-        return;
-      }
-
-      const u = new SpeechSynthesisUtterance(cleanText)
-      u.rate = rate
-      u.pitch = pitch
-      u.volume = 1 // Volumen explícito
-      
-      const v = voices.find(v => v.name === voiceName)
-      if (v) {
-        u.voice = v
-        u.lang = v.lang // Forzar el idioma de la voz seleccionada
-      } else {
-        // Fallback dinámico basado en el primer idioma disponible o español
-        u.lang = voices[0]?.lang || 'es-ES'
-      }
-      
-      u.onend = () => setSpeaking(false)
-      u.onerror = (e) => {
-        console.error('Error TTS:', e)
-        setSpeaking(false)
-      }
-      
-      utteranceRef.current = u
-      synth.speak(u)
-    }, 150)
-  }
-
-  const stop = () => {
-    window.speechSynthesis.cancel()
-    setSpeaking(false)
+      playChunk(0)
+    }, 250)
   }
 
 
