@@ -28,11 +28,19 @@ export default function Page() {
     if (typeof window === 'undefined') return
     const synth = window.speechSynthesis
     const updateVoices = () => {
-      setVoices(synth.getVoices())
+      const v = synth.getVoices()
+      if (v.length > 0) setVoices(v)
     }
+
+    // Polling cada 500ms porque onvoiceschanged es inconsistente en Android
+    const interval = setInterval(() => {
+      updateVoices()
+    }, 500)
+
     updateVoices()
     synth.onvoiceschanged = updateVoices
     return () => {
+      clearInterval(interval)
       synth.onvoiceschanged = null
     }
   }, [])
@@ -69,15 +77,20 @@ export default function Page() {
     if (!data?.text) return
     const synth = window.speechSynthesis
     
-    // Cancelar cualquier lectura previa (fundamental en móviles)
+    // Cancelar todo lo anterior
     synth.cancel()
     setSpeaking(true)
 
-    // Un pequeño retraso ayuda a que el motor de voz de Android se "resetee" correctamente
+    // Delay un poco más largo para permitir que el motor de Android se limpie
     setTimeout(() => {
-      // Limpiamos el texto de caracteres de control que confunden a algunos motores TTS
-      const cleanText = data.text.slice(0, 100000)
-        .replace(/[\r\n\t]+/g, " ")
+      // Warmup silencioso para "despertar" el canal de audio en móviles
+      const warmup = new SpeechSynthesisUtterance("")
+      warmup.volume = 0
+      synth.speak(warmup)
+
+      // Limpieza de texto más agresiva para caracteres invisibles
+      const cleanText = data.text.slice(0, 80000)
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
 
@@ -89,9 +102,16 @@ export default function Page() {
       const u = new SpeechSynthesisUtterance(cleanText)
       u.rate = rate
       u.pitch = pitch
+      u.volume = 1 // Volumen explícito
       
       const v = voices.find(v => v.name === voiceName)
-      if (v) u.voice = v
+      if (v) {
+        u.voice = v
+        u.lang = v.lang // Forzar el idioma de la voz seleccionada
+      } else {
+        // Fallback dinámico basado en el primer idioma disponible o español
+        u.lang = voices[0]?.lang || 'es-ES'
+      }
       
       u.onend = () => setSpeaking(false)
       u.onerror = (e) => {
@@ -101,7 +121,7 @@ export default function Page() {
       
       utteranceRef.current = u
       synth.speak(u)
-    }, 60)
+    }, 150)
   }
 
   const stop = () => {
