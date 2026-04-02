@@ -52,11 +52,19 @@ export default function Page() {
     window.addEventListener('beforeinstallprompt', handlePrompt)
     window.addEventListener('appinstalled', () => setDeferredPrompt(null))
 
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden' && window.speechSynthesis.speaking) {
+        window.speechSynthesis.resume()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
     return () => {
       clearInterval(interval)
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
       synth.onvoiceschanged = null
       window.removeEventListener('beforeinstallprompt', handlePrompt)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [])
 
@@ -134,8 +142,11 @@ export default function Page() {
 
     u.onerror = (e) => {
       console.error("Chunk Error:", e)
-      chunkIndexRef.current = index + 1
-      playChunk(index + 1)
+      // Si falla por estar en segundo plano, intentar recuperar
+      setTimeout(() => {
+        chunkIndexRef.current = index + 1
+        playChunk(index + 1)
+      }, 100)
     }
 
     utteranceRef.current = u
@@ -167,6 +178,16 @@ export default function Page() {
         artwork: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
       })
       navigator.mediaSession.playbackState = 'playing'
+      
+      // Intentar forzar duración para que Android no lo ignore
+      if ('setPositionState' in navigator.mediaSession) {
+        navigator.mediaSession.setPositionState({
+          duration: 1000,
+          playbackRate: 1,
+          position: 0
+        })
+      }
+
       navigator.mediaSession.setActionHandler('play', () => {
         if (!window.speechSynthesis.speaking) playChunk(chunkIndexRef.current)
         navigator.mediaSession.playbackState = 'playing'
