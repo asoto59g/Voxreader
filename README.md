@@ -12,6 +12,7 @@ Voxreader es una aplicación web progresiva (PWA) diseñada para convertir docum
 - **Persistencia de Sesión**: Recuerda automáticamente el último documento cargado, la posición exacta de lectura y tus ajustes de voz.
 - **Screen Wake Lock**: Evita que la pantalla se apague mientras estás siguiendo la lectura visualmente.
 - **Hardened Background Audio**: Técnicas avanzadas para evitar que Android detenga la lectura al bloquear el teléfono.
+- **Voces Premium**: Soporte para voces de alta calidad (incluyendo voces naturales de Microsoft si se usa el navegador Edge).
 
 ## 📋 Requisitos para Ejecución Correcta
 
@@ -20,11 +21,15 @@ Voxreader es una aplicación web progresiva (PWA) diseñada para convertir docum
 - **iOS**: Safari (soporta PWA y TTS básico).
 - **Escritorio**: Chrome o Edge para soporte completo de Wake Lock y controles multimedia.
 
-### 🔋 Configuración para Android (Lectura en segundo plano)
-Para evitar que el sistema operativo detenga el audio después de unos minutos de bloqueo, se recomienda:
-1. Ir a **Ajustes** > **Aplicaciones** > **Voxreader** (o Chrome si no la has instalado como App).
-2. Seleccionar **Batería** o **Ahorro de batería**.
-3. Elegir la opción **"Sin restricciones"** o **"No optimizar"**.
+### 🎙️ Cómo obtener las mejores voces en Android
+Si quieres tener las voces de **Microsoft** (como en PC) o voces más naturales:
+1. **Usar Microsoft Edge**: Si instalas y usas Voxreader desde el navegador **Edge para Android**, tendrás acceso a todas las voces "Online" de Microsoft que suenan mucho más humanas.
+2. **Mejorar Google TTS**:
+   - Ve a **Ajustes** de tu celular.
+   - Busca **"Salida de texto a voz"**.
+   - En **Motor preferido**, asegúrate de que esté seleccionado "Servicios de voz de Google".
+   - Pulsa el icono de engranaje ⚙️ > **Instalar datos de voz**.
+   - Descarga los paquetes de "Español" (existen versiones recomendadas de 15MB-50MB que suenan mucho mejor).
 
 ### 🛠️ Configuración de Desarrollo
 Si deseas ejecutar el proyecto localmente:

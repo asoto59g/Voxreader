@@ -134,6 +134,14 @@ export default function Page() {
     }
   }, [])
 
+  const sortedVoices = useMemo(() => {
+    return [...voices].sort((a, b) => {
+      if (a.lang < b.lang) return -1
+      if (a.lang > b.lang) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [voices])
+
   useEffect(() => {
     if (currentIdx !== -1 && scrollContainerRef.current) {
       const activeElement = document.getElementById(`chunk-${currentIdx}`)
@@ -514,10 +522,14 @@ export default function Page() {
         
         <div className="row">
           <div>
-            <label>Voz</label>
+            <label>Voz ({voices.length})</label>
             <select value={voiceName} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setVoiceName(e.target.value)}>
               <option value="">Sistema (detectar)</option>
-              {voices.map((v: SpeechSynthesisVoice) => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+              {sortedVoices.map((v: SpeechSynthesisVoice) => (
+                <option key={v.name} value={v.name}>
+                  [{v.lang.substring(0,2).toUpperCase()}] {v.name}
+                </option>
+              ))}
             </select>
           </div>
           <div>
