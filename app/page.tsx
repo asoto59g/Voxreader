@@ -54,7 +54,6 @@ export default function Page() {
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
-  const workerRef = useRef<Worker | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -67,7 +66,6 @@ export default function Page() {
       if (v.length > 0) setVoices(v)
     }
 
-    const interval = setInterval(updateVoices, 500)
     updateVoices()
     synth.onvoiceschanged = updateVoices
 
@@ -78,50 +76,27 @@ export default function Page() {
     window.addEventListener('beforeinstallprompt', handlePrompt)
     window.addEventListener('appinstalled', () => setDeferredPrompt(null))
 
-    const handleVisibility = async () => {
-      if (document.visibilityState === 'hidden' && window.speechSynthesis.speaking) {
+    const handleVisibility = () => {
+      if (!window.speechSynthesis.speaking) return;
+      if (document.visibilityState === 'hidden') {
+        // Activar persistencia solo cuando no se ve
         window.speechSynthesis.resume()
-        if (silentAudioRef.current && silentAudioRef.current.paused) {
-          silentAudioRef.current.play().catch(() => {})
-        }
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'playing'
-        }
+        startPersistence()
+      } else {
+        // Desactivar persistencia en primer plano para permitir ahorro de energía / screen timeout
+        stopPersistence()
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
-    // Crear un Worker para mantener el pulso en segundo plano (Android lo suspende menos que al hilo principal)
-    const workerCode = `
-      var timer = null;
-      onmessage = function(e) {
-        if (e.data === 'start') {
-          if (timer) clearInterval(timer);
-          timer = setInterval(function() { postMessage('tick'); }, 1000);
-        } else if (e.data === 'stop') {
-          if (timer) clearInterval(timer);
-        }
-      };
-    `;
-    const blob = new Blob([workerCode], {type: 'application/javascript'});
-    const worker = new Worker(URL.createObjectURL(blob));
-    worker.onmessage = () => {
-      if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
-    };
-    workerRef.current = worker;
-
     return () => {
-      clearInterval(interval)
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-      if (workerRef.current) {
-        workerRef.current.postMessage('stop');
-        workerRef.current.terminate();
-      }
+      stopPersistence()
       synth.onvoiceschanged = null
       window.removeEventListener('beforeinstallprompt', handlePrompt)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [voices.length]) // Depend on voices.length to re-run only when needed
+  }, [voices.length])
+ // Depend on voices.length to re-run only when needed
 
   const doExtract = async () => {
     setError(undefined); setBusy(true); setData(undefined)
@@ -151,13 +126,34 @@ export default function Page() {
     }
   }
 
+  const startPersistence = () => {
+    if (silentAudioRef.current && silentAudioRef.current.paused) {
+      silentAudioRef.current.play().catch(() => {})
+    }
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    heartbeatRef.current = setInterval(() => {
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.resume();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+      }
+    }, 2000)
+  }
+
+  const stopPersistence = () => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+    if (silentAudioRef.current) {
+      silentAudioRef.current.pause()
+    }
+  }
+
   const stop = () => {
     const synth = window.speechSynthesis
     synth.cancel()
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-    if (workerRef.current) workerRef.current.postMessage('stop')
+    stopPersistence()
     if (silentAudioRef.current) {
-      silentAudioRef.current.pause()
       silentAudioRef.current.currentTime = 0
     }
     if ('mediaSession' in navigator) {
@@ -229,28 +225,31 @@ export default function Page() {
     stop() // Limpiar todo antes de empezar
     setSpeaking(true)
 
-    // Activar audio silencioso para mantener vivo el proceso en Android
+    // Preparar audio silencioso (se activará solo cuando sea necesario)
     if (!silentAudioRef.current) {
       const blob = generateSilentWav(60); 
       if (blob) {
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url)
         audio.loop = true
-        // EL MARCAPASOS: El hardware de audio invoca este código ~4 veces por segundo incluso en segundo plano
         audio.ontimeupdate = () => {
-          const synth = window.speechSynthesis;
-          if (synth.speaking) {
-             // Forzar resume preventivo cada tick
-             synth.resume();
-          } else if (isChunkActiveRef.current === false && nextIndexRef.current < chunkListRef.current.length) {
-             // Si el anterior terminó (onend lo puso en false) o se perdió el evento, disparamos el siguiente
-             playChunk(nextIndexRef.current);
+          // El marcapasos solo corre activamente si estamos "hidden"
+          if (document.visibilityState === 'hidden') {
+            const synth = window.speechSynthesis;
+            if (synth.speaking) {
+               synth.resume();
+            } else if (isChunkActiveRef.current === false && nextIndexRef.current < chunkListRef.current.length) {
+               playChunk(nextIndexRef.current);
+            }
           }
         };
         silentAudioRef.current = audio
       }
     }
-    silentAudioRef.current?.play().catch(console.error)
+
+    if (document.visibilityState === 'hidden') {
+      startPersistence()
+    }
 
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
@@ -308,19 +307,6 @@ export default function Page() {
     chunkListRef.current = finalChunks.filter((c: string) => c.trim().length > 0)
     nextIndexRef.current = 0
     isChunkActiveRef.current = false
-
-    if (workerRef.current) workerRef.current.postMessage('start')
-
-    // Sistema Keep-Alive para Android: resume() preventivo cada 2s (más agresivo)
-    heartbeatRef.current = setInterval(() => {
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.resume();
-        // Recordar al MediaSession que seguimos aquí
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.playbackState = 'playing';
-        }
-      }
-    }, 2000)
 
     // Iniciar con un pequeño delay y warmup
     setTimeout(() => {
