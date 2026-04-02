@@ -2,18 +2,16 @@ import EPub from 'epub'
 import fs from 'node:fs/promises'
 
 export async function extractFromEpub(tmpPath: string) {
-  // epub lib needs filesystem path
   const book = new EPub(tmpPath)
   const textParts: string[] = []
   const title = await new Promise<string>((resolve, reject) => {
     book.on('error', reject)
     book.on('end', () => resolve(book.metadata?.title || 'Libro EPUB'))
-    book.on('book:metadata', (meta) => {})
-    book.on('book:chapter', (chapter) => {})
+    book.on('book:metadata', () => {})
+    book.on('book:chapter', () => {})
     book.parse()
   }).catch((e) => { throw e })
 
-  // Chapters
   const getChapter = (id: string) => new Promise<string>((resolve, reject) => {
     book.getChapter(id, (err: any, text: string) => {
       if (err) reject(err)

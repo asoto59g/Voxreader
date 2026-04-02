@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { extractFromPdf } from '@/lib/extract/pdf'
-import { extractFromWeb } from '@/lib/extract/web'
-import { extractFromEpub } from '@/lib/extract/epub'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -22,6 +19,7 @@ export async function POST(req: NextRequest) {
       const schema = z.string().url()
       const parsed = schema.safeParse(url)
       if (!parsed.success) return NextResponse.json({ error: 'URL inválida' }, { status: 400 })
+      const { extractFromWeb } = await import('@/lib/extract/web')
       const { title, text } = await extractFromWeb(url)
       return NextResponse.json({ title, text, source: { type: 'web', url } })
     }
@@ -33,6 +31,7 @@ export async function POST(req: NextRequest) {
     if (source === 'pdf') {
       const arrayBuf = await file.arrayBuffer()
       const buf = Buffer.from(arrayBuf)
+      const { extractFromPdf } = await import('@/lib/extract/pdf')
       const { title, text } = await extractFromPdf(buf)
       return NextResponse.json({ title, text, source: { type: 'pdf', name: file.name } })
     }
@@ -42,6 +41,7 @@ export async function POST(req: NextRequest) {
       const buf = Buffer.from(arrayBuf)
       const tmpPath = path.join(os.tmpdir(), `upload-${Date.now()}.epub`)
       await fs.writeFile(tmpPath, buf)
+      const { extractFromEpub } = await import('@/lib/extract/epub')
       const { title, text } = await extractFromEpub(tmpPath)
       return NextResponse.json({ title, text, source: { type: 'epub', name: file.name } })
     }

@@ -32,7 +32,6 @@ export default function Page() {
     if (typeof window === 'undefined') return
     const synth = window.speechSynthesis
     const onvoiceschanged = () => {
-      // trigger re-render
       setSpeaking(s => !s)
       setSpeaking(s => !s)
     }
@@ -72,7 +71,7 @@ export default function Page() {
     if (!data?.text) return
     const synth = window.speechSynthesis
     synth.cancel()
-    const u = new SpeechSynthesisUtterance(data.text.slice(0, 200000)) // limit for demo
+    const u = new SpeechSynthesisUtterance(data.text.slice(0, 200000))
     u.rate = rate
     u.pitch = pitch
     const v = voices.find(v => v.name === voiceName)
@@ -91,12 +90,12 @@ export default function Page() {
 
   const generateMp3 = async () => {
     if (!data?.text) return
-    setBusy(True); setError(undefined); setMp3Url(undefined)
+    setBusy(true); setError(undefined); setMp3Url(undefined)
     try {
       const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         provider: 'openai',
         voice: 'alloy',
-        text: data.text.slice(0, 4000) // keep demo-friendly, chunking can be added
+        text: data.text.slice(0, 4000)
       }) })
       if (!res.ok) throw new Error(await res.text())
       const blob = await res.blob()

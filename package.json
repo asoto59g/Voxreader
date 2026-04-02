@@ -1,7 +1,7 @@
 {
   "name": "text2audio-pwa",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -23,5 +23,8 @@
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.17.0"
   }
 }

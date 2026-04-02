@@ -23,11 +23,9 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Navigation requests: network-first with offline fallback
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-
-  if (req.method !== 'GET') return; // Don't cache POST/PUT
+  if (req.method !== 'GET') return;
 
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
@@ -47,7 +45,6 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // Cache-first for static assets (_next/static, images, fonts)
   if (url.pathname.startsWith('/_next/static') ||
       url.pathname.startsWith('/icons/') ||
       url.pathname.endsWith('.png') ||
@@ -66,7 +63,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stale-While-Revalidate for same-origin GET APIs (e.g., /api/extract?*)
   if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
     event.respondWith((async () => {
       const cache = await caches.open(RUNTIME_CACHE);
