@@ -4,6 +4,9 @@ export const metadata = {
   title: 'Text2Audio PWA',
   description: 'Convierte texto (PDF, web, libros) a audio',
   manifest: '/manifest.json',
+}
+
+export const viewport = {
   themeColor: '#2563eb'
 }
 

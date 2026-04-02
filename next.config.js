@@ -13,6 +13,7 @@ const nextConfig = {
     config.resolve.fallback = {
       ...config.resolve.fallback,
       'original-fs': false,
+      'zipfile': false,
       'aws-sdk': false,
       'nock': false,
       'mock-aws-s3': false
