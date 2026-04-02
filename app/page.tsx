@@ -78,13 +78,12 @@ export default function Page() {
 
     const handleVisibility = () => {
       if (!window.speechSynthesis.speaking) return;
+      // Extra safety resume to prevent freezing
+      window.speechSynthesis.resume()
       if (document.visibilityState === 'hidden') {
-        // Activar persistencia solo cuando no se ve
-        window.speechSynthesis.resume()
-        startPersistence()
-      } else {
-        // Desactivar persistencia en primer plano para permitir ahorro de energía / screen timeout
-        stopPersistence()
+         if (silentAudioRef.current && silentAudioRef.current.paused) {
+           silentAudioRef.current.play().catch(() => {})
+         }
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
@@ -233,23 +232,18 @@ export default function Page() {
         const audio = new Audio(url)
         audio.loop = true
         audio.ontimeupdate = () => {
-          // El marcapasos solo corre activamente si estamos "hidden"
-          if (document.visibilityState === 'hidden') {
-            const synth = window.speechSynthesis;
-            if (synth.speaking) {
-               synth.resume();
-            } else if (isChunkActiveRef.current === false && nextIndexRef.current < chunkListRef.current.length) {
-               playChunk(nextIndexRef.current);
-            }
+          const synth = window.speechSynthesis;
+          if (synth.speaking) {
+             synth.resume();
+          } else if (isChunkActiveRef.current === false && nextIndexRef.current < chunkListRef.current.length) {
+             playChunk(nextIndexRef.current);
           }
         };
         silentAudioRef.current = audio
       }
     }
 
-    if (document.visibilityState === 'hidden') {
-      startPersistence()
-    }
+    startPersistence()
 
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
