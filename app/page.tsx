@@ -43,7 +43,8 @@ export default function Page() {
   const [epub, setEpub] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string|undefined>()
-  const [data, setData] = useState<ExtractResponse|undefined>()
+  const [queue, setQueue] = useState<ExtractResponse[]>([])
+  const [activeQueueIndex, setActiveQueueIndex] = useState(0)
   const [rate, setRate] = useState(1.0)
   const [pitch, setPitch] = useState(1.0)
   const [voiceName, setVoiceName] = useState<string>('')
@@ -113,13 +114,30 @@ export default function Page() {
     if (saved) {
       try {
         const state = JSON.parse(saved)
-        if (state.data) {
-          setData(state.data)
-          // Forzar segmentación para restaurar chunks
+        if (state.queue && state.queue.length > 0) {
+          setQueue(state.queue)
+          const activeIdx = state.activeQueueIndex || 0
+          setActiveQueueIndex(activeIdx)
+          
+          const currentData = state.queue[activeIdx]
+          if (currentData) {
+            // Forzar segmentación para restaurar chunks
+            const finalChunks = segmentText(currentData.text)
+            chunkListRef.current = finalChunks
+            setChunks(finalChunks)
+            
+            if (state.index !== undefined) {
+              nextIndexRef.current = state.index
+              setCurrentIdx(state.index - 1)
+            }
+          }
+        } else if (state.data) {
+          // Migración de versión anterior
+          setQueue([state.data])
+          setActiveQueueIndex(0)
           const finalChunks = segmentText(state.data.text)
           chunkListRef.current = finalChunks
           setChunks(finalChunks)
-          
           if (state.index !== undefined) {
             nextIndexRef.current = state.index
             setCurrentIdx(state.index - 1)
@@ -151,11 +169,12 @@ export default function Page() {
     }
     // Guardar progreso cada vez que cambia el índice o configuración
     saveState()
-  }, [currentIdx, data, rate, pitch, voiceName])
+  }, [currentIdx, queue, activeQueueIndex, rate, pitch, voiceName])
 
   const saveState = () => {
     const state = {
-      data,
+      queue,
+      activeQueueIndex,
       index: nextIndexRef.current,
       rate,
       pitch,
@@ -201,8 +220,10 @@ export default function Page() {
   }
  // Depend on voices.length to re-run only when needed
 
+  const currentData = queue[activeQueueIndex]
+
   const doExtract = async () => {
-    setError(undefined); setBusy(true); setData(undefined)
+    setError(undefined); setBusy(true)
     try {
       const fd = new FormData()
       if (mode === 'pdf') {
@@ -221,7 +242,15 @@ export default function Page() {
       const res = await fetch('/api/extract', { method: 'POST', body: fd })
       if (!res.ok) throw new Error(await res.text())
       const json = await res.json() as ExtractResponse
-      setData(json)
+      
+      const newQueue = [...queue, json]
+      setQueue(newQueue)
+      
+      // Si el reproductor estaba vacío o pausado y es el primer elemento, no hace nada extra
+      // Pero si ya terminamos todo y agregamos uno nuevo, podríamos querer saltar a él
+      if (queue.length === 0) {
+        setActiveQueueIndex(0)
+      }
     } catch (e:any) {
       setError(e.message || 'Error al extraer contenido')
     } finally {
@@ -281,7 +310,7 @@ export default function Page() {
     setSpeaking(false)
     setCurrentIdx(-1)
     releaseWakeLock()
-    if (data?.text) readAloud()
+    if (currentData?.text) readAloud()
   }
 
   const skipForward = () => {
@@ -370,8 +399,10 @@ export default function Page() {
     synth.speak(u)
   }
 
-  const readAloud = (resume = false) => {
-    if (!data?.text) return
+  const readAloud = (resume = false, forceQueueIdx?: number) => {
+    const targetIdx = forceQueueIdx !== undefined ? forceQueueIdx : activeQueueIndex
+    const docToRead = queue[targetIdx]
+    if (!docToRead?.text) return
     playbackRequestedRef.current = true
     const synth = window.speechSynthesis
     
@@ -407,8 +438,8 @@ export default function Page() {
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: data.title || 'Voxreader',
-        artist: 'Leyendo contenido...',
+        title: docToRead.title || 'Voxreader',
+        artist: `Doc ${targetIdx + 1} de ${queue.length}`,
         album: 'Voxreader PWA',
         artwork: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
       })
@@ -449,10 +480,9 @@ export default function Page() {
     }
 
     // Preparar texto: Limpiar caracteres basura
-    const finalChunks = segmentText(data.text);
+    const finalChunks = segmentText(docToRead.text);
     
     chunkListRef.current = finalChunks
-    setChunks(chunkListRef.current)
     setChunks(chunkListRef.current)
     if (!resume) {
       nextIndexRef.current = 0
@@ -475,6 +505,17 @@ export default function Page() {
     deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
     if (outcome === 'accepted') setDeferredPrompt(null)
+  }
+
+  const removeFromQueue = (idx: number) => {
+    const newQueue = queue.filter((_, i) => i !== idx)
+    setQueue(newQueue)
+    if (idx === activeQueueIndex) {
+      pauseReading()
+      setActiveQueueIndex(0)
+    } else if (idx < activeQueueIndex) {
+      setActiveQueueIndex(activeQueueIndex - 1)
+    }
   }
 
   return (
@@ -516,9 +557,58 @@ export default function Page() {
         {error && <p style={{color: '#f87171', marginTop: 12, textAlign: 'center', fontWeight: 500}}>{error}</p>}
       </div>
 
-      {data && <div className="card">
-        <h2 style={{fontSize: '1.25rem', marginBottom: '0.5rem'}}>{data.title || 'Contenido extraído'}</h2>
-        <p className="small" style={{marginBottom: '1.5rem'}}>Caracteres: {data.text.length.toLocaleString()}</p>
+      {queue.length > 0 && (
+        <div className="card" style={{marginTop: '1.5rem'}}>
+          <h3 style={{fontSize: '1.1rem', marginBottom: '1rem'}}>📚 Cola de Lectura ({queue.length})</h3>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+            {queue.map((item, idx) => (
+              <div 
+                key={idx} 
+                style={{
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  background: idx === activeQueueIndex ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.03)',
+                  borderRadius: '8px',
+                  border: idx === activeQueueIndex ? '1px solid var(--brand)' : '1px solid transparent',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div 
+                  onClick={() => {
+                    pauseReading()
+                    setActiveQueueIndex(idx)
+                    nextIndexRef.current = 0
+                  }}
+                  style={{flex: 1, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem'}}
+                >
+                  <span style={{color: idx === activeQueueIndex ? 'var(--brand)' : 'var(--muted)', marginRight: 8, fontWeight: 'bold'}}>
+                    {idx + 1}.
+                  </span>
+                  {item.title || 'Sin título'}
+                </div>
+                <button 
+                  onClick={() => removeFromQueue(idx)}
+                  className="simple" 
+                  style={{padding: '4px 8px', fontSize: '0.8rem', color: '#f87171'}}
+                >
+                  Eliminar
+                </button>
+              </div>
+            ))}
+          </div>
+          {queue.length > 1 && (
+             <button onClick={() => { pauseReading(); setQueue([]); setActiveQueueIndex(0); }} className="simple" style={{width: '100%', marginTop: '1rem', color: 'var(--muted)', fontSize: '0.85rem'}}>
+                Vaciar cola
+             </button>
+          )}
+        </div>
+      )}
+
+      {currentData && <div className="card">
+        <h2 style={{fontSize: '1.25rem', marginBottom: '0.5rem'}}>{currentData.title || (mode === 'web' ? 'Página Web' : (mode === 'pdf' ? 'Documento PDF' : 'EPUB'))}</h2>
+        <p className="small" style={{marginBottom: '1.5rem'}}>Caracteres: {currentData.text.length.toLocaleString()} | Doc {activeQueueIndex + 1} de {queue.length}</p>
         
         <div className="row">
           <div>
