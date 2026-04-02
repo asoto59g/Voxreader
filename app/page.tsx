@@ -176,12 +176,18 @@ export default function Page() {
   }
 
   const skipForward = () => {
-    if (nextIndexRef.current < chunkListRef.current.length) {
-      playChunk(nextIndexRef.current)
-    }
+    if (chunkListRef.current.length === 0) return
+    playbackRequestedRef.current = true
+    startPersistence()
+    setSpeaking(true)
+    playChunk(nextIndexRef.current)
   }
 
   const skipBackward = () => {
+    if (chunkListRef.current.length === 0) return
+    playbackRequestedRef.current = true
+    startPersistence()
+    setSpeaking(true)
     const prev = Math.max(0, nextIndexRef.current - 2)
     playChunk(prev)
   }
@@ -189,11 +195,18 @@ export default function Page() {
   const playChunk = (index: number) => {
     if (!playbackRequestedRef.current) return
     const synth = window.speechSynthesis
+    
+    // Safety check for index
+    if (index < 0) index = 0
+    
     if (index >= chunkListRef.current.length) {
       pauseReading()
       nextIndexRef.current = 0
       return
     }
+
+    // Cancelar cualquier cosa anterior antes de hablar
+    synth.cancel()
 
     isChunkActiveRef.current = true
     nextIndexRef.current = index + 1
@@ -214,24 +227,27 @@ export default function Page() {
 
     u.onend = () => {
       isChunkActiveRef.current = false
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = 'playing'
-        if ('setPositionState' in navigator.mediaSession) {
-          navigator.mediaSession.setPositionState({
-            duration: chunkListRef.current.length * 10,
-            playbackRate: 1,
-            position: nextIndexRef.current * 10
-          })
+      if (playbackRequestedRef.current) {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing'
+          // Aprox. duration tracking
+          if ('setPositionState' in navigator.mediaSession) {
+             const pos = nextIndexRef.current * 10
+             const dur = chunkListRef.current.length * 10
+             navigator.mediaSession.setPositionState({
+                duration: Math.max(pos, dur),
+                playbackRate: 1,
+                position: Math.min(pos, dur)
+             })
+          }
         }
       }
-      // NOTA: No llamamos a playChunk aquí directamente.
-      // Esperamos a que el tick del marcapasos de audio (ontimeupdate) lo detecte.
     }
 
     u.onerror = (e: SpeechSynthesisErrorEvent) => {
+      if (e.error === 'interrupted') return;
       console.error("Chunk Error:", e)
       isChunkActiveRef.current = false
-      // El marcapasos lo re-intentará en el siguiente tick si es posible
     }
 
     // Sincronizar audio silencioso
