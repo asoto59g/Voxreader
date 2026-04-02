@@ -55,6 +55,9 @@ export default function Page() {
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
   const playbackRequestedRef = useRef(false)
+  const [currentIdx, setCurrentIdx] = useState(-1)
+  const [chunks, setChunks] = useState<string[]>([])
+  const scrollContainerRef = useRef<HTMLDivElement|null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -96,6 +99,15 @@ export default function Page() {
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [voices.length])
+
+  useEffect(() => {
+    if (currentIdx !== -1 && scrollContainerRef.current) {
+      const activeElement = document.getElementById(`chunk-${currentIdx}`)
+      if (activeElement) {
+        activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  }, [currentIdx])
  // Depend on voices.length to re-run only when needed
 
   const doExtract = async () => {
@@ -163,6 +175,7 @@ export default function Page() {
     }
     setSpeaking(false)
     isChunkActiveRef.current = false
+    setCurrentIdx(-1)
   }
 
   const restartReading = () => {
@@ -172,6 +185,7 @@ export default function Page() {
     nextIndexRef.current = 0
     isChunkActiveRef.current = false
     setSpeaking(false)
+    setCurrentIdx(-1)
     if (data?.text) readAloud()
   }
 
@@ -210,6 +224,7 @@ export default function Page() {
 
     isChunkActiveRef.current = true
     nextIndexRef.current = index + 1
+    setCurrentIdx(index)
 
     const text = chunkListRef.current[index]
     const u = new SpeechSynthesisUtterance(text)
@@ -356,8 +371,10 @@ export default function Page() {
     })
     
     chunkListRef.current = finalChunks.filter((c: string) => c.trim().length > 0)
+    setChunks(chunkListRef.current)
     if (!resume) {
       nextIndexRef.current = 0
+      setCurrentIdx(-1)
     }
     isChunkActiveRef.current = false
 
@@ -456,13 +473,59 @@ export default function Page() {
           </div>
         </div>
         <hr/>
-        <textarea 
-          readOnly 
-          value={data.text} 
-          rows={12} 
-          style={{marginTop: '1.5rem'}}
-          placeholder="El texto extraído aparecerá aquí..."
-        />
+        
+        <div 
+          ref={scrollContainerRef}
+          style={{
+            marginTop: '1.5rem',
+            height: '350px',
+            overflowY: 'auto',
+            background: 'rgba(0,0,0,0.4)',
+            borderRadius: '12px',
+            padding: '1.5rem',
+            lineHeight: '1.8',
+            fontSize: '1.05rem',
+            border: '1px solid var(--border)',
+            scrollBehavior: 'smooth'
+          }}
+        >
+          {chunks.length > 0 ? chunks.map((chunk, i) => (
+            <span 
+              key={i}
+              id={`chunk-${i}`}
+              onClick={() => {
+                playbackRequestedRef.current = true;
+                startPersistence();
+                setSpeaking(true);
+                playChunk(i);
+              }}
+              style={{
+                cursor: 'pointer',
+                borderRadius: '4px',
+                padding: '2px 4px',
+                backgroundColor: currentIdx === i ? 'rgba(99, 102, 241, 0.3)' : 'transparent',
+                color: currentIdx === i ? 'var(--neon-blue)' : 'inherit',
+                borderBottom: currentIdx === i ? '2px solid var(--neon-blue)' : 'none',
+                transition: 'all 0.2s ease',
+                display: 'inline',
+                marginRight: '6px'
+              }}
+            >
+              {chunk}
+            </span>
+          )) : (
+            <p style={{color: 'var(--muted)', textAlign: 'center', marginTop: '2rem'}}>
+              El texto extraído aparecerá segmentado aquí para seguir la lectura...
+            </p>
+          )}
+        </div>
+
+        <style jsx>{`
+          span:hover {
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+          }
+        `}</style>
       </div>}
     </div>
   )
