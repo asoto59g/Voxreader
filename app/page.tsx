@@ -8,6 +8,34 @@ type ExtractResponse = {
   source?: { type: 'pdf' | 'web' | 'epub', url?: string, name?: string }
 }
 
+const generateSilentWav = (durationSeconds = 60) => {
+  if (typeof window === 'undefined') return null;
+  const sampleRate = 8000;
+  const numChannels = 1;
+  const bitsPerSample = 8;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = durationSeconds * byteRate;
+  const chunkSize = 36 + dataSize;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  view.setUint32(0, 0x52494646, false); // RIFF
+  view.setUint32(4, chunkSize, true);
+  view.setUint32(8, 0x57415645, false); // WAVE
+  view.setUint32(12, 0x666d7420, false); // fmt
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  view.setUint32(36, 0x64617461, false); // data
+  view.setUint32(40, dataSize, true);
+  for (let i = 0; i < dataSize; i++) view.setUint8(44 + i, 128); // Silence
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
 export default function Page() {
   const [mode, setMode] = useState<'pdf'|'web'|'epub'>('pdf')
   const [pdf, setPdf] = useState<File | null>(null)
@@ -54,6 +82,10 @@ export default function Page() {
         window.speechSynthesis.resume()
         if (silentAudioRef.current && silentAudioRef.current.paused) {
           silentAudioRef.current.play().catch(() => {})
+        }
+        // Boost priority in MediaSession when hidden
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing'
         }
       }
     }
@@ -160,8 +192,17 @@ export default function Page() {
       chunkIndexRef.current = index + 1
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing'
+        // Force update position to keep OS interested
+        if ('setPositionState' in navigator.mediaSession) {
+          navigator.mediaSession.setPositionState({
+            duration: chunkListRef.current.length * 10, // Mock duration
+            playbackRate: 1,
+            position: (index + 1) * 10
+          })
+        }
       }
-      playChunk(index + 1)
+      // Pequeño delay para dejar respirar al motor pero lo suficientemente corto para que no suspendan el hilo
+      setTimeout(() => playChunk(index + 1), 10);
     }
 
     u.onerror = (e) => {
@@ -190,13 +231,21 @@ export default function Page() {
 
     // Activar audio silencioso para mantener vivo el proceso en Android
     if (!silentAudioRef.current) {
-      // 1-pixel silent WAV loop
-      const silentWav = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAABAAAA"
-      const audio = new Audio(silentWav)
-      audio.loop = true
-      silentAudioRef.current = audio
+      const blob = generateSilentWav(60); // 1 minuto de silencio real
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url)
+        audio.loop = true
+        // El pulso de audio mantiene vivo el hilo principal
+        audio.ontimeupdate = () => {
+          if (window.speechSynthesis.speaking) {
+            window.speechSynthesis.resume();
+          }
+        };
+        silentAudioRef.current = audio
+      }
     }
-    silentAudioRef.current.play().catch(console.error)
+    silentAudioRef.current?.play().catch(console.error)
 
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
@@ -218,10 +267,17 @@ export default function Page() {
       }
 
       navigator.mediaSession.setActionHandler('play', () => {
-        if (!window.speechSynthesis.speaking) playChunk(chunkIndexRef.current)
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        } else if (!window.speechSynthesis.speaking) {
+          playChunk(chunkIndexRef.current);
+        }
         navigator.mediaSession.playbackState = 'playing'
       })
-      navigator.mediaSession.setActionHandler('pause', () => stop())
+      navigator.mediaSession.setActionHandler('pause', () => {
+        window.speechSynthesis.pause();
+        navigator.mediaSession.playbackState = 'paused';
+      })
       navigator.mediaSession.setActionHandler('stop', () => stop())
     }
 
@@ -253,12 +309,16 @@ export default function Page() {
 
     if (workerRef.current) workerRef.current.postMessage('start')
 
-    // Sistema Keep-Alive para Android: resume() preventivo cada 5s (acelerado para evitar suspensión)
+    // Sistema Keep-Alive para Android: resume() preventivo cada 2s (más agresivo)
     heartbeatRef.current = setInterval(() => {
       if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.resume()
+        window.speechSynthesis.resume();
+        // Recordar al MediaSession que seguimos aquí
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.playbackState = 'playing';
+        }
       }
-    }, 5000)
+    }, 2000)
 
     // Iniciar con un pequeño delay y warmup
     setTimeout(() => {
