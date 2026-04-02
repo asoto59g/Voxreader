@@ -244,16 +244,16 @@ export default function Page() {
       <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Lectura rápida en el navegador.</p>
 
       {deferredPrompt && (
-        <button onClick={handleInstall} style={{marginTop: '1rem', backgroundColor: '#3b82f6', width: '100%'}}>
-          📲 Instalar App en este dispositivo
+        <button onClick={handleInstall} className="btn-glow" style={{width: '100%', marginTop: '1.5rem', marginBottom: '0.5rem'}}>
+          <div className="btn-content">📲 Instalar App en este dispositivo</div>
         </button>
       )}
 
-      <div className="card" style={{marginTop: '1rem'}}>
-        <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
-          <button onClick={() => setMode('pdf')} disabled={mode==='pdf'}>PDF</button>
-          <button onClick={() => setMode('web')} disabled={mode==='web'}>Web</button>
-          <button onClick={() => setMode('epub')} disabled={mode==='epub'}>EPUB</button>
+      <div className="card" style={{marginTop: '1.5rem'}}>
+        <div style={{display: 'flex', gap: 12, marginBottom: 24}}>
+          <button onClick={() => setMode('pdf')} className="simple" style={{flex: 1, background: mode==='pdf' ? 'var(--brand)' : 'rgba(255,255,255,0.05)'}}>PDF</button>
+          <button onClick={() => setMode('web')} className="simple" style={{flex: 1, background: mode==='web' ? 'var(--brand)' : 'rgba(255,255,255,0.05)'}}>Web</button>
+          <button onClick={() => setMode('epub')} className="simple" style={{flex: 1, background: mode==='epub' ? 'var(--brand)' : 'rgba(255,255,255,0.05)'}}>EPUB</button>
         </div>
         {mode === 'pdf' && <div>
           <label>Adjuntar PDF</label>
@@ -269,20 +269,23 @@ export default function Page() {
           <input type="file" accept=".epub" onChange={e => setEpub(e.target.files?.[0] || null)} />
         </div>}
 
-        <div style={{display:'flex', gap: 8, marginTop: 12}}>
-          <button onClick={doExtract} disabled={busy}>{busy ? 'Procesando...' : 'Extraer texto'}</button>
+        <div style={{marginTop: 20}}>
+          <button onClick={doExtract} disabled={busy} className="btn-glow" style={{width: '100%'}}>
+            <div className="btn-content">{busy ? 'Procesando...' : '✨ Extraer texto'}</div>
+          </button>
         </div>
-        {error && <p style={{color: '#fca5a5', marginTop: 8}}>{error}</p>}
+        {error && <p style={{color: '#f87171', marginTop: 12, textAlign: 'center', fontWeight: 500}}>{error}</p>}
       </div>
 
-      {data && <div className="card" style={{marginTop: '1rem'}}>
-        <h2>{data.title || 'Contenido extraído'}</h2>
-        <p className="small">Caracteres: {data.text.length.toLocaleString()}</p>
+      {data && <div className="card">
+        <h2 style={{fontSize: '1.25rem', marginBottom: '0.5rem'}}>{data.title || 'Contenido extraído'}</h2>
+        <p className="small" style={{marginBottom: '1.5rem'}}>Caracteres: {data.text.length.toLocaleString()}</p>
+        
         <div className="row">
           <div>
             <label>Voz</label>
             <select value={voiceName} onChange={e => setVoiceName(e.target.value)}>
-              <option value="">Sistema (depende del SO)</option>
+              <option value="">Sistema (detectar)</option>
               {voices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
             </select>
           </div>
@@ -291,18 +294,26 @@ export default function Page() {
             <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => setRate(parseFloat(e.target.value))} />
           </div>
         </div>
+        
         <div className="row">
           <div>
             <label>Tono: {pitch.toFixed(1)}</label>
             <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={e => setPitch(parseFloat(e.target.value))} />
           </div>
-        </div>
-
-        <div style={{display:'flex', gap: 8, marginTop: 12}}>
-          {!speaking ? <button onClick={readAloud}>Leer en el navegador</button> : <button onClick={stop}>Detener</button>}
+          <div style={{display: 'flex', alignItems: 'flex-end'}}>
+             <button onClick={speaking ? stop : readAloud} className="btn-glow" style={{width: '100%'}}>
+                <div className="btn-content">{speaking ? '⏹ Detener' : '▶ Leer contenido'}</div>
+             </button>
+          </div>
         </div>
         <hr/>
-        <textarea readOnly value={data.text} rows={16} />
+        <textarea 
+          readOnly 
+          value={data.text} 
+          rows={12} 
+          style={{marginTop: '1.5rem'}}
+          placeholder="El texto extraído aparecerá aquí..."
+        />
       </div>}
     </div>
   )
