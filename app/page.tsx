@@ -25,7 +25,6 @@ export default function Page() {
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
-  const wakeLockRef = useRef<any>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -93,9 +92,6 @@ export default function Page() {
     const synth = window.speechSynthesis
     synth.cancel()
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
-    if (wakeLockRef.current) {
-      wakeLockRef.current.release().then(() => { wakeLockRef.current = null }).catch(() => {})
-    }
     if (silentAudioRef.current) {
       silentAudioRef.current.pause()
       silentAudioRef.current.currentTime = 0
@@ -211,15 +207,6 @@ export default function Page() {
         window.speechSynthesis.resume()
       }
     }, 5000)
-
-    // Solicitar Wake Lock para mantener el proceso vivo aunque la pantalla esté apagada
-    if ('wakeLock' in navigator) {
-      try {
-        (navigator as any).wakeLock.request('screen').then((lock: any) => {
-          wakeLockRef.current = lock
-        }).catch(() => {})
-      } catch (e) {}
-    }
 
     // Iniciar con un pequeño delay y warmup
     setTimeout(() => {
