@@ -55,7 +55,6 @@ export default function Page() {
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
   const workerRef = useRef<Worker | null>(null)
-  const wakeLockRef = useRef<any>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -87,11 +86,6 @@ export default function Page() {
         }
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'playing'
-        }
-      } else if (document.visibilityState === 'visible') {
-        // Re-solicitar wake lock al volver si se perdió
-        if (!wakeLockRef.current && 'wakeLock' in navigator) {
-          try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
         }
       }
     }
@@ -165,10 +159,6 @@ export default function Page() {
     if (silentAudioRef.current) {
       silentAudioRef.current.pause()
       silentAudioRef.current.currentTime = 0
-    }
-    if (wakeLockRef.current) {
-      wakeLockRef.current.release();
-      wakeLockRef.current = null;
     }
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'none'
@@ -261,13 +251,6 @@ export default function Page() {
       }
     }
     silentAudioRef.current?.play().catch(console.error)
-
-    // Solicitar Wake Lock para mantener CPU arriba si es posible
-    if ('wakeLock' in navigator) {
-      (navigator as any).wakeLock.request('screen').then((lock: any) => {
-        wakeLockRef.current = lock;
-      }).catch(() => {});
-    }
 
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
