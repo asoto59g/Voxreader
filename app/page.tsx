@@ -49,11 +49,13 @@ export default function Page() {
   const [voiceName, setVoiceName] = useState<string>('')
   const [speaking, setSpeaking] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance|null>(null)
-  const chunkIndexRef = useRef(0)
+  const isChunkActiveRef = useRef(false)
+  const nextIndexRef = useRef(0)
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
   const workerRef = useRef<Worker | null>(null)
+  const wakeLockRef = useRef<any>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -77,15 +79,19 @@ export default function Page() {
     window.addEventListener('beforeinstallprompt', handlePrompt)
     window.addEventListener('appinstalled', () => setDeferredPrompt(null))
 
-    const handleVisibility = () => {
+    const handleVisibility = async () => {
       if (document.visibilityState === 'hidden' && window.speechSynthesis.speaking) {
         window.speechSynthesis.resume()
         if (silentAudioRef.current && silentAudioRef.current.paused) {
           silentAudioRef.current.play().catch(() => {})
         }
-        // Boost priority in MediaSession when hidden
         if ('mediaSession' in navigator) {
           navigator.mediaSession.playbackState = 'playing'
+        }
+      } else if (document.visibilityState === 'visible') {
+        // Re-solicitar wake lock al volver si se perdió
+        if (!wakeLockRef.current && 'wakeLock' in navigator) {
+          try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch(e) {}
         }
       }
     }
@@ -160,11 +166,16 @@ export default function Page() {
       silentAudioRef.current.pause()
       silentAudioRef.current.currentTime = 0
     }
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release();
+      wakeLockRef.current = null;
+    }
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'none'
     }
     setSpeaking(false)
-    chunkIndexRef.current = 0
+    isChunkActiveRef.current = false
+    nextIndexRef.current = 0
   }
 
   const playChunk = (index: number) => {
@@ -174,13 +185,16 @@ export default function Page() {
       return
     }
 
+    isChunkActiveRef.current = true
+    nextIndexRef.current = index + 1
+
     const text = chunkListRef.current[index]
     const u = new SpeechSynthesisUtterance(text)
     u.rate = rate
     u.pitch = pitch
     u.volume = 1
 
-    const v = voices.find(v => v.name === voiceName)
+    const v = voices.find((v: SpeechSynthesisVoice) => v.name === voiceName)
     if (v) {
       u.voice = v
       u.lang = v.lang
@@ -189,32 +203,28 @@ export default function Page() {
     }
 
     u.onend = () => {
-      chunkIndexRef.current = index + 1
+      isChunkActiveRef.current = false
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = 'playing'
-        // Force update position to keep OS interested
         if ('setPositionState' in navigator.mediaSession) {
           navigator.mediaSession.setPositionState({
-            duration: chunkListRef.current.length * 10, // Mock duration
+            duration: chunkListRef.current.length * 10,
             playbackRate: 1,
-            position: (index + 1) * 10
+            position: nextIndexRef.current * 10
           })
         }
       }
-      // Pequeño delay para dejar respirar al motor pero lo suficientemente corto para que no suspendan el hilo
-      setTimeout(() => playChunk(index + 1), 10);
+      // NOTA: No llamamos a playChunk aquí directamente.
+      // Esperamos a que el tick del marcapasos de audio (ontimeupdate) lo detecte.
     }
 
     u.onerror = (e) => {
       console.error("Chunk Error:", e)
-      // Si falla por estar en segundo plano, intentar recuperar
-      setTimeout(() => {
-        chunkIndexRef.current = index + 1
-        playChunk(index + 1)
-      }, 100)
+      isChunkActiveRef.current = false
+      // El marcapasos lo re-intentará en el siguiente tick si es posible
     }
 
-    // Sincronizar audio silencioso en cada chunk para renovar la prioridad de Android
+    // Sincronizar audio silencioso
     if (silentAudioRef.current && silentAudioRef.current.paused) {
       silentAudioRef.current.play().catch(() => {})
     }
@@ -231,21 +241,33 @@ export default function Page() {
 
     // Activar audio silencioso para mantener vivo el proceso en Android
     if (!silentAudioRef.current) {
-      const blob = generateSilentWav(60); // 1 minuto de silencio real
+      const blob = generateSilentWav(60); 
       if (blob) {
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url)
         audio.loop = true
-        // El pulso de audio mantiene vivo el hilo principal
+        // EL MARCAPASOS: El hardware de audio invoca este código ~4 veces por segundo incluso en segundo plano
         audio.ontimeupdate = () => {
-          if (window.speechSynthesis.speaking) {
-            window.speechSynthesis.resume();
+          const synth = window.speechSynthesis;
+          if (synth.speaking) {
+             // Forzar resume preventivo cada tick
+             synth.resume();
+          } else if (isChunkActiveRef.current === false && nextIndexRef.current < chunkListRef.current.length) {
+             // Si el anterior terminó (onend lo puso en false) o se perdió el evento, disparamos el siguiente
+             playChunk(nextIndexRef.current);
           }
         };
         silentAudioRef.current = audio
       }
     }
     silentAudioRef.current?.play().catch(console.error)
+
+    // Solicitar Wake Lock para mantener CPU arriba si es posible
+    if ('wakeLock' in navigator) {
+      (navigator as any).wakeLock.request('screen').then((lock: any) => {
+        wakeLockRef.current = lock;
+      }).catch(() => {});
+    }
 
     // Configurar Media Session para lock screen
     if ('mediaSession' in navigator) {
@@ -267,10 +289,11 @@ export default function Page() {
       }
 
       navigator.mediaSession.setActionHandler('play', () => {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        } else if (!window.speechSynthesis.speaking) {
-          playChunk(chunkIndexRef.current);
+        const synth = window.speechSynthesis;
+        if (synth.paused) {
+          synth.resume();
+        } else if (!isChunkActiveRef.current) {
+          playChunk(nextIndexRef.current);
         }
         navigator.mediaSession.playbackState = 'playing'
       })
@@ -290,7 +313,7 @@ export default function Page() {
     
     // Si una frase es muy larga (>400), dividirla más
     const finalChunks: string[] = []
-    initialChunks.forEach(c => {
+    initialChunks.forEach((c: string) => {
       if (c.length > 400) {
         const sub = c.match(/.{1,400}/g) || [c]
         finalChunks.push(...sub)
@@ -299,13 +322,9 @@ export default function Page() {
       }
     })
     
-    chunkListRef.current = finalChunks.filter(c => c.trim().length > 0)
-    chunkIndexRef.current = 0
-
-    if (chunkListRef.current.length === 0) {
-      setSpeaking(false)
-      return
-    }
+    chunkListRef.current = finalChunks.filter((c: string) => c.trim().length > 0)
+    nextIndexRef.current = 0
+    isChunkActiveRef.current = false
 
     if (workerRef.current) workerRef.current.postMessage('start')
 
@@ -356,16 +375,16 @@ export default function Page() {
         </div>
         {mode === 'pdf' && <div>
           <label>Adjuntar PDF</label>
-          <input type="file" accept="application/pdf" onChange={e => setPdf(e.target.files?.[0] || null)} />
+          <input type="file" accept="application/pdf" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPdf(e.target.files?.[0] || null)} />
         </div>}
         {mode === 'web' && <div>
           <label>URL de la página</label>
-          <input type="url" placeholder="https://ejemplo.com/articulo" value={url} onChange={e => setUrl(e.target.value)} />
+          <input type="url" placeholder="https://ejemplo.com/articulo" value={url} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUrl(e.target.value)} />
           <p className="small">Respetá robots.txt y términos del sitio. Para contenidos detrás de login, no funcionará.</p>
         </div>}
         {mode === 'epub' && <div>
           <label>Adjuntar EPUB</label>
-          <input type="file" accept=".epub" onChange={e => setEpub(e.target.files?.[0] || null)} />
+          <input type="file" accept=".epub" onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEpub(e.target.files?.[0] || null)} />
         </div>}
 
         <div style={{marginTop: 20}}>
@@ -383,21 +402,21 @@ export default function Page() {
         <div className="row">
           <div>
             <label>Voz</label>
-            <select value={voiceName} onChange={e => setVoiceName(e.target.value)}>
+            <select value={voiceName} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setVoiceName(e.target.value)}>
               <option value="">Sistema (detectar)</option>
-              {voices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+              {voices.map((v: SpeechSynthesisVoice) => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
             </select>
           </div>
           <div>
             <label>Velocidad: {rate.toFixed(1)}x</label>
-            <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => setRate(parseFloat(e.target.value))} />
+            <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRate(parseFloat(e.target.value))} />
           </div>
         </div>
         
         <div className="row">
           <div>
             <label>Tono: {pitch.toFixed(1)}</label>
-            <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={e => setPitch(parseFloat(e.target.value))} />
+            <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPitch(parseFloat(e.target.value))} />
           </div>
           <div style={{display: 'flex', alignItems: 'flex-end'}}>
              <button onClick={speaking ? stop : readAloud} className="btn-glow" style={{width: '100%'}}>
