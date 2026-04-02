@@ -1,11 +1,9 @@
-# Text2Audio PWA (MVP) — Fixes
-Cambios incluidos:
-- Alias @ configurado en tsconfig.json (baseUrl + paths).
-- Bug corregido en app/page.tsx (setBusy(true)).
-- Imports dinámicos en app/api/extract/route.ts para cargar extractores bajo demanda.
-- package.json con engines Node >= 18.17.
+# Text2Audio PWA — Vercel TS Fix
+- Import dinámico para 'pdf-parse' y 'epub' (evita error de tipos en Vercel).
+- global.d.ts con declare module 'pdf-parse' y 'epub'.
+- Alias @ y demás fixes listos.
 
-Uso:
+Desarrollo:
 npm install
 npm run dev
 
