@@ -179,7 +179,8 @@ export default function Page() {
     if (!playbackRequestedRef.current) return
     const synth = window.speechSynthesis
     if (index >= chunkListRef.current.length) {
-      stop()
+      pauseReading()
+      nextIndexRef.current = 0
       return
     }
 
@@ -297,9 +298,14 @@ export default function Page() {
       navigator.mediaSession.setActionHandler('stop', () => restartReading())
     }
 
-    if (resume && nextIndexRef.current > 0) {
-      playChunk(nextIndexRef.current - 1)
-      return
+    if (resume) {
+      if (chunkListRef.current.length > 0) {
+        // Si ya tenemos pedazos, simplemente reanudamos desde el actual o el siguiente
+        const idx = Math.max(0, nextIndexRef.current - 1)
+        playChunk(idx)
+        return
+      }
+      // Si no hay pedazos (perdimos estado), caemos al flujo normal para regenerarlos
     }
 
     // Preparar texto: Limpiar caracteres basura
@@ -321,7 +327,9 @@ export default function Page() {
     })
     
     chunkListRef.current = finalChunks.filter((c: string) => c.trim().length > 0)
-    nextIndexRef.current = 0
+    if (!resume) {
+      nextIndexRef.current = 0
+    }
     isChunkActiveRef.current = false
 
     // Iniciar con un pequeño delay y warmup
