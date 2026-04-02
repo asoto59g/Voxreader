@@ -7,25 +7,29 @@ export async function extractFromEpub(tmpPath: string) {
   const book = new EPub(tmpPath)
   const textParts: string[] = []
   const title = await new Promise<string>((resolve, reject) => {
-    book.on('error', reject)
-    book.on('end', () => resolve(book.metadata?.title || 'Libro EPUB'))
-    book.on('book:metadata', () => {})
-    book.on('book:chapter', () => {})
+    book.on('error', (err: any) => reject(err))
+    book.on('end', () => {
+      resolve(book.metadata?.title || 'Libro EPUB')
+    })
     book.parse()
-  }).catch((e) => { throw e })
+  }).catch((e) => {
+    console.error('EPUB Parse Error:', e)
+    throw new Error('Error al parsear el archivo EPUB')
+  })
 
-  const getChapter = (id: string) => new Promise<string>((resolve, reject) => {
+  const getChapter = (id: string) => new Promise<string>((resolve) => {
     book.getChapter(id, (err: any, text: string) => {
-      if (err) reject(err)
+      if (err) resolve('')
       else resolve(text.replace(/<[^>]+>/g, ' '))
     })
   })
 
-  for (const id of (book.flow || []).map((c:any)=>c.id)) {
-    try {
-      const t = await getChapter(id)
-      textParts.push(t)
-    } catch {}
+  // Procesar capítulos en orden
+  for (const item of (book.flow || [])) {
+    if (item.id) {
+      const t = await getChapter(item.id)
+      if (t.trim()) textParts.push(t)
+    }
   }
 
   const raw = textParts.join('\n')
