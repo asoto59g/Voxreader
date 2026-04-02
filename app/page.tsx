@@ -54,6 +54,7 @@ export default function Page() {
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const playbackRequestedRef = useRef(false)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -131,6 +132,7 @@ export default function Page() {
     }
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
     heartbeatRef.current = setInterval(() => {
+      if (!playbackRequestedRef.current) return;
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.resume();
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
@@ -149,6 +151,7 @@ export default function Page() {
   }
 
   const pauseReading = () => {
+    playbackRequestedRef.current = false
     const synth = window.speechSynthesis
     synth.cancel()
     stopPersistence()
@@ -163,6 +166,7 @@ export default function Page() {
   }
 
   const restartReading = () => {
+    playbackRequestedRef.current = false
     stopPersistence()
     window.speechSynthesis.cancel()
     nextIndexRef.current = 0
@@ -172,6 +176,7 @@ export default function Page() {
   }
 
   const playChunk = (index: number) => {
+    if (!playbackRequestedRef.current) return
     const synth = window.speechSynthesis
     if (index >= chunkListRef.current.length) {
       stop()
@@ -228,6 +233,7 @@ export default function Page() {
 
   const readAloud = (resume = false) => {
     if (!data?.text) return
+    playbackRequestedRef.current = true
     const synth = window.speechSynthesis
     
     if (!resume) {
@@ -245,6 +251,7 @@ export default function Page() {
         const audio = new Audio(url)
         audio.loop = true
         audio.ontimeupdate = () => {
+          if (!playbackRequestedRef.current) return;
           const synth = window.speechSynthesis;
           if (synth.speaking) {
              synth.resume();
