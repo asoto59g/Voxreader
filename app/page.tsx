@@ -58,6 +58,7 @@ export default function Page() {
   const [currentIdx, setCurrentIdx] = useState(-1)
   const [chunks, setChunks] = useState<string[]>([])
   const scrollContainerRef = useRef<HTMLDivElement|null>(null)
+  const wakeLockRef = useRef<any>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -80,11 +81,16 @@ export default function Page() {
     window.addEventListener('beforeinstallprompt', handlePrompt)
     window.addEventListener('appinstalled', () => setDeferredPrompt(null))
 
-    const handleVisibility = () => {
+    const handleVisibility = async () => {
       if (!window.speechSynthesis.speaking) return;
       // Extra safety resume to prevent freezing
       window.speechSynthesis.resume()
-      if (document.visibilityState === 'hidden') {
+      
+      if (document.visibilityState === 'visible') {
+        if (playbackRequestedRef.current) {
+          requestWakeLock();
+        }
+      } else if (document.visibilityState === 'hidden') {
          if (silentAudioRef.current && silentAudioRef.current.paused) {
            silentAudioRef.current.play().catch(() => {})
          }
@@ -94,6 +100,7 @@ export default function Page() {
 
     return () => {
       stopPersistence()
+      releaseWakeLock()
       synth.onvoiceschanged = null
       window.removeEventListener('beforeinstallprompt', handlePrompt)
       document.removeEventListener('visibilitychange', handleVisibility)
@@ -147,6 +154,26 @@ export default function Page() {
       voiceName
     }
     localStorage.setItem('voxreader-state', JSON.stringify(state))
+  }
+
+  const requestWakeLock = async () => {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      if (wakeLockRef.current) return;
+      wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      wakeLockRef.current.addEventListener('release', () => {
+        wakeLockRef.current = null;
+      });
+    } catch (err: any) {
+      console.error(`${err.name}, ${err.message}`);
+    }
+  }
+
+  const releaseWakeLock = async () => {
+    if (wakeLockRef.current) {
+      await wakeLockRef.current.release();
+      wakeLockRef.current = null;
+    }
   }
 
   const segmentText = (text: string) => {
@@ -233,6 +260,7 @@ export default function Page() {
     setSpeaking(false)
     isChunkActiveRef.current = false
     setCurrentIdx(-1)
+    releaseWakeLock()
     saveState()
   }
 
@@ -244,6 +272,7 @@ export default function Page() {
     isChunkActiveRef.current = false
     setSpeaking(false)
     setCurrentIdx(-1)
+    releaseWakeLock()
     if (data?.text) readAloud()
   }
 
@@ -279,6 +308,7 @@ export default function Page() {
 
     // Cancelar cualquier cosa anterior antes de hablar
     synth.cancel()
+    requestWakeLock()
 
     isChunkActiveRef.current = true
     nextIndexRef.current = index + 1
