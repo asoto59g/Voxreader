@@ -148,19 +148,27 @@ export default function Page() {
     }
   }
 
-  const stop = () => {
+  const pauseReading = () => {
     const synth = window.speechSynthesis
     synth.cancel()
     stopPersistence()
     if (silentAudioRef.current) {
-      silentAudioRef.current.currentTime = 0
+      silentAudioRef.current.pause()
     }
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'none'
+      navigator.mediaSession.playbackState = 'paused'
     }
     setSpeaking(false)
     isChunkActiveRef.current = false
+  }
+
+  const restartReading = () => {
+    stopPersistence()
+    window.speechSynthesis.cancel()
     nextIndexRef.current = 0
+    isChunkActiveRef.current = false
+    setSpeaking(false)
+    if (data?.text) readAloud()
   }
 
   const playChunk = (index: number) => {
@@ -203,7 +211,7 @@ export default function Page() {
       // Esperamos a que el tick del marcapasos de audio (ontimeupdate) lo detecte.
     }
 
-    u.onerror = (e) => {
+    u.onerror = (e: SpeechSynthesisErrorEvent) => {
       console.error("Chunk Error:", e)
       isChunkActiveRef.current = false
       // El marcapasos lo re-intentará en el siguiente tick si es posible
@@ -218,10 +226,15 @@ export default function Page() {
     synth.speak(u)
   }
 
-  const readAloud = () => {
+  const readAloud = (resume = false) => {
     if (!data?.text) return
     const synth = window.speechSynthesis
-    stop() // Limpiar todo antes de empezar
+    
+    if (!resume) {
+      pauseReading()
+      nextIndexRef.current = 0
+    }
+    
     setSpeaking(true)
 
     // Preparar audio silencioso (se activará solo cuando sea necesario)
@@ -273,11 +286,13 @@ export default function Page() {
         }
         navigator.mediaSession.playbackState = 'playing'
       })
-      navigator.mediaSession.setActionHandler('pause', () => {
-        window.speechSynthesis.pause();
-        navigator.mediaSession.playbackState = 'paused';
-      })
-      navigator.mediaSession.setActionHandler('stop', () => stop())
+      navigator.mediaSession.setActionHandler('pause', () => pauseReading())
+      navigator.mediaSession.setActionHandler('stop', () => restartReading())
+    }
+
+    if (resume && nextIndexRef.current > 0) {
+      playChunk(nextIndexRef.current - 1)
+      return
     }
 
     // Preparar texto: Limpiar caracteres basura
@@ -381,9 +396,12 @@ export default function Page() {
             <label>Tono: {pitch.toFixed(1)}</label>
             <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPitch(parseFloat(e.target.value))} />
           </div>
-          <div style={{display: 'flex', alignItems: 'flex-end'}}>
-             <button onClick={speaking ? stop : readAloud} className="btn-glow" style={{width: '100%'}}>
-                <div className="btn-content">{speaking ? '⏹ Detener' : '▶ Leer contenido'}</div>
+          <div style={{display: 'flex', alignItems: 'flex-end', gap: 8}}>
+             <button title="Reiniciar" onClick={restartReading} className="simple" style={{padding: '12px', background: 'rgba(255,255,255,0.05)'}}>
+                <div style={{fontSize: '1.2rem'}}>🔄</div>
+             </button>
+             <button onClick={speaking ? pauseReading : () => readAloud(true)} className="btn-glow" style={{flex: 1}}>
+                <div className="btn-content">{speaking ? '⏸ Pausar' : (nextIndexRef.current > 0 ? '▶ Reanudar' : '▶ Leer contenido')}</div>
              </button>
           </div>
         </div>
