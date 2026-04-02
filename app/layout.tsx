@@ -15,7 +15,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body>
         {children}
-{/* Temporarily disabled for debugging 404 error
         <script dangerouslySetInnerHTML={{__html: `
           if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -23,7 +22,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             });
           }
         `}} />
-        */}
       </body>
     </html>
   )

@@ -22,20 +22,19 @@ export default function Page() {
   const [speaking, setSpeaking] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance|null>(null)
 
-  const voices = useMemo(() => {
-    if (typeof window === 'undefined') return []
-    return window.speechSynthesis.getVoices()
-  }, [speaking])
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const synth = window.speechSynthesis
-    const onvoiceschanged = () => {
-      setSpeaking(s => !s)
-      setSpeaking(s => !s)
+    const updateVoices = () => {
+      setVoices(synth.getVoices())
     }
-    synth.addEventListener('voiceschanged', onvoiceschanged)
-    return () => synth.removeEventListener('voiceschanged', onvoiceschanged)
+    updateVoices()
+    synth.onvoiceschanged = updateVoices
+    return () => {
+      synth.onvoiceschanged = null
+    }
   }, [])
 
   const doExtract = async () => {
@@ -69,17 +68,40 @@ export default function Page() {
   const readAloud = () => {
     if (!data?.text) return
     const synth = window.speechSynthesis
+    
+    // Cancelar cualquier lectura previa (fundamental en móviles)
     synth.cancel()
-    const u = new SpeechSynthesisUtterance(data.text.slice(0, 200000))
-    u.rate = rate
-    u.pitch = pitch
-    const v = voices.find(v => v.name === voiceName)
-    if (v) u.voice = v
-    u.onend = () => setSpeaking(false)
-    u.onerror = (e) => { console.error(e); setSpeaking(false) }
-    utteranceRef.current = u
     setSpeaking(true)
-    synth.speak(u)
+
+    // Un pequeño retraso ayuda a que el motor de voz de Android se "resetee" correctamente
+    setTimeout(() => {
+      // Limpiamos el texto de caracteres de control que confunden a algunos motores TTS
+      const cleanText = data.text.slice(0, 100000)
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!cleanText) {
+        setSpeaking(false);
+        return;
+      }
+
+      const u = new SpeechSynthesisUtterance(cleanText)
+      u.rate = rate
+      u.pitch = pitch
+      
+      const v = voices.find(v => v.name === voiceName)
+      if (v) u.voice = v
+      
+      u.onend = () => setSpeaking(false)
+      u.onerror = (e) => {
+        console.error('Error TTS:', e)
+        setSpeaking(false)
+      }
+      
+      utteranceRef.current = u
+      synth.speak(u)
+    }, 60)
   }
 
   const stop = () => {
