@@ -2,6 +2,8 @@
 
 Voxreader es una aplicación web progresiva (PWA) diseñada para convertir documentos y artículos web en audio de alta calidad, permitiéndote "leer" mientras realizas otras tareas. Está optimizada para dispositivos móviles, garantizando que el audio no se detenga incluso cuando la pantalla está apagada.
 
+Ejecutar app en siguiente link:  https://voxreader.vercel.app/
+
 ## 🚀 Características Principales
 
 - **Multi-formato**: Extrae texto de archivos **PDF**, **EPUB** y **páginas web** (URLs).
