@@ -1,0 +1,27 @@
+{
+  "name": "text2audio-pwa",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0",
+    "epub": "^1.2.0",
+    "jsdom": "^24.0.0",
+    "next": "14.1.0",
+    "openai": "^4.28.4",
+    "pdf-parse": "^1.1.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "typescript": "^5.3.3"
+  }
+}
