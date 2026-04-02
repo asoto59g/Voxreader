@@ -8,6 +8,16 @@ const nextConfig = {
         headers: [{ key: 'Cache-Control', value: 'no-store' }]
       }
     ]
+  },
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      'original-fs': false,
+      'aws-sdk': false,
+      'nock': false,
+      'mock-aws-s3': false
+    }
+    return config
   }
 }
 module.exports = nextConfig
