@@ -1,7 +1,9 @@
-import EPub from 'epub'
 import fs from 'node:fs/promises'
 
 export async function extractFromEpub(tmpPath: string) {
+  // Import dinámico: algunos entornos requieren evitar tipos/ssr de 'epub'
+  // @ts-ignore - tipos ausentes o no compatibles para 'epub'
+  const EPub = (await import('epub')).default as any
   const book = new EPub(tmpPath)
   const textParts: string[] = []
   const title = await new Promise<string>((resolve, reject) => {
