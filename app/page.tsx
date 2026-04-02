@@ -175,6 +175,17 @@ export default function Page() {
     if (data?.text) readAloud()
   }
 
+  const skipForward = () => {
+    if (nextIndexRef.current < chunkListRef.current.length) {
+      playChunk(nextIndexRef.current)
+    }
+  }
+
+  const skipBackward = () => {
+    const prev = Math.max(0, nextIndexRef.current - 2)
+    playChunk(prev)
+  }
+
   const playChunk = (index: number) => {
     if (!playbackRequestedRef.current) return
     const synth = window.speechSynthesis
@@ -296,6 +307,8 @@ export default function Page() {
       })
       navigator.mediaSession.setActionHandler('pause', () => pauseReading())
       navigator.mediaSession.setActionHandler('stop', () => restartReading())
+      navigator.mediaSession.setActionHandler('previoustrack', () => skipBackward())
+      navigator.mediaSession.setActionHandler('nexttrack', () => skipForward())
     }
 
     if (resume) {
@@ -411,12 +424,18 @@ export default function Page() {
             <label>Tono: {pitch.toFixed(1)}</label>
             <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPitch(parseFloat(e.target.value))} />
           </div>
-          <div style={{display: 'flex', alignItems: 'flex-end', gap: 8}}>
-             <button title="Reiniciar" onClick={restartReading} className="simple" style={{padding: '12px', background: 'rgba(255,255,255,0.05)'}}>
-                <div style={{fontSize: '1.2rem'}}>🔄</div>
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, width: '100%'}}>
+             <button title="Anterior" onClick={skipBackward} className="simple" style={{padding: '12px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                <div style={{fontSize: '1rem'}}>⏪</div>
              </button>
-             <button onClick={speaking ? pauseReading : () => readAloud(true)} className="btn-glow" style={{flex: 1}}>
-                <div className="btn-content">{speaking ? '⏸ Pausar' : (nextIndexRef.current > 0 ? '▶ Reanudar' : '▶ Leer contenido')}</div>
+             <button title="Reiniciar" onClick={restartReading} className="simple" style={{padding: '12px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                <div style={{fontSize: '1rem'}}>🔄</div>
+             </button>
+             <button onClick={speaking ? pauseReading : () => readAloud(true)} className="btn-glow" style={{flex: 1, minWidth: 140}}>
+                <div className="btn-content" style={{fontSize: '0.95rem'}}>{speaking ? '⏸ Pausar' : (nextIndexRef.current > 0 ? '▶ Reanudar' : '▶ Leer contenido')}</div>
+             </button>
+             <button title="Siguiente" onClick={skipForward} className="simple" style={{padding: '12px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                <div style={{fontSize: '1rem'}}>⏩</div>
              </button>
           </div>
         </div>
