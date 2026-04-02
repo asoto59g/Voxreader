@@ -100,6 +100,33 @@ export default function Page() {
     }
   }, [voices.length])
 
+  // Carga inicial desde localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('voxreader-state')
+    if (saved) {
+      try {
+        const state = JSON.parse(saved)
+        if (state.data) {
+          setData(state.data)
+          // Forzar segmentación para restaurar chunks
+          const finalChunks = segmentText(state.data.text)
+          chunkListRef.current = finalChunks
+          setChunks(finalChunks)
+          
+          if (state.index !== undefined) {
+            nextIndexRef.current = state.index
+            setCurrentIdx(state.index - 1)
+          }
+        }
+        if (state.rate) setRate(state.rate)
+        if (state.pitch) setPitch(state.pitch)
+        if (state.voiceName) setVoiceName(state.voiceName)
+      } catch (e) {
+        console.error("Error cargando estado:", e)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     if (currentIdx !== -1 && scrollContainerRef.current) {
       const activeElement = document.getElementById(`chunk-${currentIdx}`)
@@ -107,7 +134,36 @@ export default function Page() {
         activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
     }
-  }, [currentIdx])
+    // Guardar progreso cada vez que cambia el índice o configuración
+    saveState()
+  }, [currentIdx, data, rate, pitch, voiceName])
+
+  const saveState = () => {
+    const state = {
+      data,
+      index: nextIndexRef.current,
+      rate,
+      pitch,
+      voiceName
+    }
+    localStorage.setItem('voxreader-state', JSON.stringify(state))
+  }
+
+  const segmentText = (text: string) => {
+    const rawText = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").replace(/\s+/g, " ").trim();
+    const regex = /[^.!?]+[.!?]+/g;
+    let initialChunks = rawText.match(regex) || [rawText];
+    const finalChunks: string[] = []
+    initialChunks.forEach((c: string) => {
+      if (c.length > 400) {
+        const sub = c.match(/.{1,400}/g) || [c]
+        finalChunks.push(...sub)
+      } else {
+        finalChunks.push(c)
+      }
+    })
+    return finalChunks.filter((c: string) => c.trim().length > 0)
+  }
  // Depend on voices.length to re-run only when needed
 
   const doExtract = async () => {
@@ -150,6 +206,7 @@ export default function Page() {
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
       }
     }, 2000)
+    saveState()
   }
 
   const stopPersistence = () => {
@@ -176,6 +233,7 @@ export default function Page() {
     setSpeaking(false)
     isChunkActiveRef.current = false
     setCurrentIdx(-1)
+    saveState()
   }
 
   const restartReading = () => {
@@ -353,24 +411,10 @@ export default function Page() {
     }
 
     // Preparar texto: Limpiar caracteres basura
-    const rawText = data.text.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").replace(/\s+/g, " ").trim();
+    const finalChunks = segmentText(data.text);
     
-    // Segmentar por frases (puntos, signos) para que Android no se sature
-    const regex = /[^.!?]+[.!?]+/g;
-    let initialChunks = rawText.match(regex) || [rawText];
-    
-    // Si una frase es muy larga (>400), dividirla más
-    const finalChunks: string[] = []
-    initialChunks.forEach((c: string) => {
-      if (c.length > 400) {
-        const sub = c.match(/.{1,400}/g) || [c]
-        finalChunks.push(...sub)
-      } else {
-        finalChunks.push(c)
-      }
-    })
-    
-    chunkListRef.current = finalChunks.filter((c: string) => c.trim().length > 0)
+    chunkListRef.current = finalChunks
+    setChunks(chunkListRef.current)
     setChunks(chunkListRef.current)
     if (!resume) {
       nextIndexRef.current = 0
