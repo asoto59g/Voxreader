@@ -24,6 +24,8 @@ export default function Page() {
   const chunkIndexRef = useRef(0)
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
 
@@ -42,10 +44,19 @@ export default function Page() {
 
     updateVoices()
     synth.onvoiceschanged = updateVoices
+
+    const handlePrompt = (e: any) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handlePrompt)
+    window.addEventListener('appinstalled', () => setDeferredPrompt(null))
+
     return () => {
       clearInterval(interval)
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
       synth.onvoiceschanged = null
+      window.removeEventListener('beforeinstallprompt', handlePrompt)
     }
   }, [])
 
@@ -81,6 +92,13 @@ export default function Page() {
     const synth = window.speechSynthesis
     synth.cancel()
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    if (silentAudioRef.current) {
+      silentAudioRef.current.pause()
+      silentAudioRef.current.currentTime = 0
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'none'
+    }
     setSpeaking(false)
     chunkIndexRef.current = 0
   }
@@ -127,6 +145,33 @@ export default function Page() {
     stop() // Limpiar todo antes de empezar
     setSpeaking(true)
 
+    // Activar audio silencioso para mantener vivo el proceso en Android
+    if (!silentAudioRef.current) {
+      // 1-pixel silent WAV loop
+      const silentWav = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAABAAAA"
+      const audio = new Audio(silentWav)
+      audio.loop = true
+      silentAudioRef.current = audio
+    }
+    silentAudioRef.current.play().catch(console.error)
+
+    // Configurar Media Session para lock screen
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: data.title || 'Voxreader',
+        artist: 'Leyendo contenido...',
+        album: 'Voxreader PWA',
+        artwork: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
+      })
+      navigator.mediaSession.playbackState = 'playing'
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (!window.speechSynthesis.speaking) playChunk(chunkIndexRef.current)
+        navigator.mediaSession.playbackState = 'playing'
+      })
+      navigator.mediaSession.setActionHandler('pause', () => stop())
+      navigator.mediaSession.setActionHandler('stop', () => stop())
+    }
+
     // Preparar texto: Limpiar caracteres basura
     const rawText = data.text.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").replace(/\s+/g, " ").trim();
     
@@ -170,10 +215,23 @@ export default function Page() {
   }
 
 
+  const handleInstall = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') setDeferredPrompt(null)
+  }
+
   return (
     <div className="container">
       <h1>Text2Audio PWA</h1>
       <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Lectura rápida en el navegador.</p>
+
+      {deferredPrompt && (
+        <button onClick={handleInstall} style={{marginTop: '1rem', backgroundColor: '#3b82f6', width: '100%'}}>
+          📲 Instalar App en este dispositivo
+        </button>
+      )}
 
       <div className="card" style={{marginTop: '1rem'}}>
         <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
