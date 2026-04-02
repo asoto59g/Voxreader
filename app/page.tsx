@@ -25,6 +25,7 @@ export default function Page() {
   const chunkListRef = useRef<string[]>([])
   const heartbeatRef = useRef<any>(null)
   const silentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const workerRef = useRef<Worker | null>(null)
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
 
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
@@ -37,11 +38,7 @@ export default function Page() {
       if (v.length > 0) setVoices(v)
     }
 
-    // Polling cada 500ms porque onvoiceschanged es inconsistente en Android
-    const interval = setInterval(() => {
-      updateVoices()
-    }, 500)
-
+    const interval = setInterval(updateVoices, 500)
     updateVoices()
     synth.onvoiceschanged = updateVoices
 
@@ -55,18 +52,44 @@ export default function Page() {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden' && window.speechSynthesis.speaking) {
         window.speechSynthesis.resume()
+        if (silentAudioRef.current && silentAudioRef.current.paused) {
+          silentAudioRef.current.play().catch(() => {})
+        }
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
+    // Crear un Worker para mantener el pulso en segundo plano (Android lo suspende menos que al hilo principal)
+    const workerCode = `
+      var timer = null;
+      onmessage = function(e) {
+        if (e.data === 'start') {
+          if (timer) clearInterval(timer);
+          timer = setInterval(function() { postMessage('tick'); }, 1000);
+        } else if (e.data === 'stop') {
+          if (timer) clearInterval(timer);
+        }
+      };
+    `;
+    const blob = new Blob([workerCode], {type: 'application/javascript'});
+    const worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = () => {
+      if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
+    };
+    workerRef.current = worker;
+
     return () => {
       clearInterval(interval)
       if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+      if (workerRef.current) {
+        workerRef.current.postMessage('stop');
+        workerRef.current.terminate();
+      }
       synth.onvoiceschanged = null
       window.removeEventListener('beforeinstallprompt', handlePrompt)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [voices.length]) // Depend on voices.length to re-run only when needed
 
   const doExtract = async () => {
     setError(undefined); setBusy(true); setData(undefined)
@@ -100,6 +123,7 @@ export default function Page() {
     const synth = window.speechSynthesis
     synth.cancel()
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+    if (workerRef.current) workerRef.current.postMessage('stop')
     if (silentAudioRef.current) {
       silentAudioRef.current.pause()
       silentAudioRef.current.currentTime = 0
@@ -147,6 +171,11 @@ export default function Page() {
         chunkIndexRef.current = index + 1
         playChunk(index + 1)
       }, 100)
+    }
+
+    // Sincronizar audio silencioso en cada chunk para renovar la prioridad de Android
+    if (silentAudioRef.current && silentAudioRef.current.paused) {
+      silentAudioRef.current.play().catch(() => {})
     }
 
     utteranceRef.current = u
@@ -221,6 +250,8 @@ export default function Page() {
       setSpeaking(false)
       return
     }
+
+    if (workerRef.current) workerRef.current.postMessage('start')
 
     // Sistema Keep-Alive para Android: resume() preventivo cada 5s (acelerado para evitar suspensión)
     heartbeatRef.current = setInterval(() => {
