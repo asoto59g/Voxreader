@@ -21,7 +21,6 @@ export default function Page() {
   const [voiceName, setVoiceName] = useState<string>('')
   const [speaking, setSpeaking] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance|null>(null)
-  const [mp3Url, setMp3Url] = useState<string|undefined>(undefined)
 
   const voices = useMemo(() => {
     if (typeof window === 'undefined') return []
@@ -40,7 +39,7 @@ export default function Page() {
   }, [])
 
   const doExtract = async () => {
-    setError(undefined); setBusy(true); setData(undefined); setMp3Url(undefined)
+    setError(undefined); setBusy(true); setData(undefined)
     try {
       const fd = new FormData()
       if (mode === 'pdf') {
@@ -88,30 +87,11 @@ export default function Page() {
     setSpeaking(false)
   }
 
-  const generateMp3 = async () => {
-    if (!data?.text) return
-    setBusy(true); setError(undefined); setMp3Url(undefined)
-    try {
-      const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        provider: 'openai',
-        voice: 'alloy',
-        text: data.text.slice(0, 4000)
-      }) })
-      if (!res.ok) throw new Error(await res.text())
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      setMp3Url(url)
-    } catch (e:any) {
-      setError(e.message || 'Error generando MP3 (configurá OPENAI_API_KEY)')
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <div className="container">
       <h1>Text2Audio PWA</h1>
-      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Modo rápido: lectura en el navegador. MP3 opcional con un proveedor TTS.</p>
+      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Lectura rápida en el navegador.</p>
 
       <div className="card" style={{marginTop: '1rem'}}>
         <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
@@ -164,12 +144,7 @@ export default function Page() {
 
         <div style={{display:'flex', gap: 8, marginTop: 12}}>
           {!speaking ? <button onClick={readAloud}>Leer en el navegador</button> : <button onClick={stop}>Detener</button>}
-          <button onClick={generateMp3} disabled={busy}>Generar MP3 (OpenAI)</button>
         </div>
-        {mp3Url && <div style={{marginTop: 12}}>
-          <audio controls src={mp3Url} />
-          <div><a href={mp3Url} download={(data.title || 'audio')+'.mp3'}>Descargar MP3</a></div>
-        </div>}
         <hr/>
         <textarea readOnly value={data.text} rows={16} />
       </div>}
