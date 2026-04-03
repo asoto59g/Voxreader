@@ -542,6 +542,17 @@ export default function Page() {
 
   return (
     <div className="container">
+      <img 
+        src="https://github.com/user-attachments/assets/80d1698d-1d02-45c6-81c1-6c6660ed7563" 
+        alt="VoxReader Logo" 
+        style={{
+          width: '120px', 
+          height: 'auto', 
+          display: 'block', 
+          margin: '0 auto 1rem auto',
+          borderRadius: '12px'
+        }} 
+      />
       <h1>Text2Audio PWA</h1>
       <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Lectura rápida en el navegador.</p>
 
