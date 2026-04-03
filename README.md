@@ -1,3 +1,6 @@
+<img width="1162" height="420" alt="image" src="https://github.com/user-attachments/assets/80d1698d-1d02-45c6-81c1-6c6660ed7563" />
+
+
 # Voxreader PWA - Text-to-Audio companion
 
 Voxreader es una aplicación web progresiva (PWA) diseñada para convertir documentos y artículos web en audio de alta calidad, permitiéndote "leer" mientras realizas otras tareas. Está optimizada para dispositivos móviles, garantizando que el audio no se detenga incluso cuando la pantalla está apagada.
