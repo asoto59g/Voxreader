@@ -651,8 +651,27 @@ export default function Page() {
              </button>
           </div>
         </div>
-        <hr/>
-        
+
+        <div style={{marginTop: '1.5rem', marginBottom: '0.5rem'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+            <span style={{fontSize: '0.85rem', color: 'var(--muted)', fontWeight: 500}}>Avance del artículo</span>
+            <span style={{fontSize: '0.9rem', color: 'var(--brand)', fontWeight: 'bold'}}>
+              {chunks.length > 0 ? Math.min(100, Math.round(((currentIdx + 1) / chunks.length) * 100)) : 0}%
+            </span>
+          </div>
+          <div style={{width: '100%', height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden'}}>
+            <div 
+              style={{
+                width: `${chunks.length > 0 ? Math.min(100, Math.round(((currentIdx + 1) / chunks.length) * 100)) : 0}%`,
+                height: '100%',
+                background: 'var(--brand)',
+                boxShadow: '0 0 10px var(--brand)',
+                transition: 'width 0.3s ease'
+              }}
+            />
+          </div>
+        </div>
+
         <div 
           ref={scrollContainerRef}
           style={{
