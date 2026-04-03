@@ -69,11 +69,28 @@ export default function Page() {
     const synth = window.speechSynthesis
     const updateVoices = () => {
       const v = synth.getVoices()
-      if (v.length > 0) setVoices(v)
+      if (v.length > 0) {
+        setVoices(v)
+      }
     }
 
     updateVoices()
     synth.onvoiceschanged = updateVoices
+
+    // Android/Edge Mobile Fix: Polling for voices
+    // Some mobile browsers don't fire initial 'onvoiceschanged' correctly
+    const voicePolling = setInterval(() => {
+        const v = synth.getVoices()
+        if (v.length > 0) {
+            setVoices(prev => {
+                if (prev.length !== v.length) return v;
+                return prev;
+            });
+        }
+    }, 500);
+
+    // Stop polling after 10 seconds to save battery
+    const stopPolling = setTimeout(() => clearInterval(voicePolling), 10000);
 
     const handlePrompt = (e: any) => {
       e.preventDefault()
@@ -102,11 +119,13 @@ export default function Page() {
     return () => {
       stopPersistence()
       releaseWakeLock()
+      clearInterval(voicePolling)
+      clearTimeout(stopPolling)
       synth.onvoiceschanged = null
       window.removeEventListener('beforeinstallprompt', handlePrompt)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [voices.length])
+  }, [])
 
   // Carga inicial desde localStorage
   useEffect(() => {
