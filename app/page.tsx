@@ -546,10 +546,10 @@ export default function Page() {
         src="https://github.com/user-attachments/assets/80d1698d-1d02-45c6-81c1-6c6660ed7563" 
         alt="VoxReader Logo" 
         style={{
-          width: '120px', 
+          width: '240px', 
           height: 'auto', 
           display: 'block', 
-          margin: '0 auto 1rem auto',
+          margin: '0 0 1rem 0',
           borderRadius: '12px'
         }} 
       />
