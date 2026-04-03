@@ -8,6 +8,7 @@ Ejecutar app en siguiente link:  https://voxreader.vercel.app/
 
 - **Multi-formato**: Extrae texto de archivos **PDF**, **EPUB** y **páginas web** (URLs).
 - **Lectura Sincronizada**: Resaltado de texto estilo karaoke que avanza junto con la voz.
+- **Soporte de Archivos Grandes**: Capacidad para procesar PDFs y EPUBs de gran tamaño (100MB+) gracias a la extracción local en el navegador.
 - **Auto-Scroll**: El visor de texto se desplaza automáticamente para mantener la oración activa siempre a la vista.
 - **Navegación Interactiva**: Salta a cualquier párrafo simplemente tocándolo en el visor.
 - **Controles de Audio Profesionales**: Botones de Anterior, Siguiente, Reiniciar y Pausar, totalmente integrados con el panel de control de tu celular (MediaSession API).
@@ -38,6 +39,7 @@ Si deseas ejecutar el proyecto localmente:
 
 1. **Instalar dependencias**:
    ```bash
+   npm install pdfjs-dist jszip
    npm install
    ```
 2. **Ejecutar servidor de desarrollo**:

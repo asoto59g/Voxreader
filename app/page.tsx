@@ -225,33 +225,36 @@ export default function Page() {
   const doExtract = async () => {
     setError(undefined); setBusy(true)
     try {
-      const fd = new FormData()
+      let json: ExtractResponse;
+
       if (mode === 'pdf') {
         if (!pdf) throw new Error('Adjuntá un PDF')
-        fd.append('source', 'pdf')
-        fd.append('file', pdf)
+        const { extractFromPdfClient } = await import('@/lib/extract/pdf-client')
+        json = await extractFromPdfClient(pdf)
+      } else if (mode === 'epub') {
+        if (!epub) throw new Error('Adjuntá un EPUB (*.epub)')
+        const { extractFromEpubClient } = await import('@/lib/extract/epub-client')
+        json = await extractFromEpubClient(epub)
       } else if (mode === 'web') {
         if (!url) throw new Error('Ingresá una URL válida')
+        const fd = new FormData()
         fd.append('source', 'web')
         fd.append('url', url)
+        const res = await fetch('/api/extract', { method: 'POST', body: fd })
+        if (!res.ok) throw new Error(await res.text())
+        json = await res.json() as ExtractResponse
       } else {
-        if (!epub) throw new Error('Adjuntá un EPUB (*.epub)')
-        fd.append('source', 'epub')
-        fd.append('file', epub)
+        throw new Error('Modo no soportado')
       }
-      const res = await fetch('/api/extract', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(await res.text())
-      const json = await res.json() as ExtractResponse
-      
+
       const newQueue = [...queue, json]
       setQueue(newQueue)
       
-      // Si el reproductor estaba vacío o pausado y es el primer elemento, no hace nada extra
-      // Pero si ya terminamos todo y agregamos uno nuevo, podríamos querer saltar a él
       if (queue.length === 0) {
         setActiveQueueIndex(0)
       }
     } catch (e:any) {
+      console.error("Extraction error:", e)
       setError(e.message || 'Error al extraer contenido')
     } finally {
       setBusy(false)
