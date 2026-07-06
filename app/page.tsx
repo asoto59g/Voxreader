@@ -14,7 +14,6 @@ type ExtractResponse = {
 function splitSentences(text: string, maxLen = 180): string[] {
   const raw = text.replace(/\n+/g, ' ').trim()
   const chunks: string[] = []
-  // Split on sentence-ending punctuation then re-join short fragments
   const pieces = raw.split(/(?<=[.!?;])\s+/)
   let current = ''
   for (const piece of pieces) {
@@ -43,37 +42,32 @@ export default function Page() {
   const [speaking, setSpeaking] = useState(false)
   const [sentenceIdx, setSentenceIdx] = useState(0)
 
-  // Derived sentences list
+  // Sentences derived from extracted text
   const sentences = useMemo(() => data?.text ? splitSentences(data.text) : [], [data])
-  
-  // Char offset for progress bar
-  const charOffset = useMemo(() => {
-    let offset = 0
-    for (let i = 0; i < sentenceIdx && i < sentences.length; i++) {
-      offset += sentences[i].length + 1
-    }
-    return Math.min(offset, data?.text?.length ?? 0)
-  }, [sentenceIdx, sentences, data])
 
+  // Refs to avoid stale closures in async TTS callbacks
   const speakingRef = useRef(false)
   const sentenceIdxRef = useRef(0)
   const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sentenceDivRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  const voices = useMemo(() => {
-    if (typeof window === 'undefined') return []
-    return window.speechSynthesis.getVoices()
-  }, [speaking])
-
+  // Voice list
+  const [voiceList, setVoiceList] = useState<SpeechSynthesisVoice[]>([])
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const synth = window.speechSynthesis
-    const onvoiceschanged = () => {
-      setSpeaking(s => !s)
-      setSpeaking(s => !s)
-    }
-    synth.addEventListener('voiceschanged', onvoiceschanged)
-    return () => synth.removeEventListener('voiceschanged', onvoiceschanged)
+    const load = () => setVoiceList(window.speechSynthesis.getVoices())
+    load()
+    window.speechSynthesis.addEventListener('voiceschanged', load)
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', load)
   }, [])
+
+  // Auto-scroll to current sentence in full-text panel
+  useEffect(() => {
+    const el = sentenceDivRefs.current[sentenceIdx]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [sentenceIdx])
 
   const stopSpeaking = useCallback(() => {
     speakingRef.current = false
@@ -82,42 +76,46 @@ export default function Page() {
     setSpeaking(false)
   }, [])
 
-  const speakFrom = useCallback((fromIdx: number, currentSentences: string[], currentVoices: SpeechSynthesisVoice[], currentVoiceName: string, currentRate: number, currentPitch: number) => {
-    if (!speakingRef.current || fromIdx >= currentSentences.length) {
+  // Core recursive TTS function
+  const speakSentence = useCallback((
+    idx: number,
+    sents: string[],
+    vList: SpeechSynthesisVoice[],
+    vName: string,
+    r: number,
+    p: number
+  ) => {
+    if (!speakingRef.current || idx >= sents.length) {
       speakingRef.current = false
       setSpeaking(false)
       if (keepAliveRef.current) clearInterval(keepAliveRef.current)
       return
     }
 
-    sentenceIdxRef.current = fromIdx
-    setSentenceIdx(fromIdx)
+    sentenceIdxRef.current = idx
+    setSentenceIdx(idx)
 
-    const text = currentSentences[fromIdx]
+    const text = sents[idx]
     if (!text?.trim()) {
-      // skip empty
-      speakFrom(fromIdx + 1, currentSentences, currentVoices, currentVoiceName, currentRate, currentPitch)
+      speakSentence(idx + 1, sents, vList, vName, r, p)
       return
     }
 
     const u = new SpeechSynthesisUtterance(text)
-    u.rate = currentRate
-    u.pitch = currentPitch
+    u.rate = r
+    u.pitch = p
     u.lang = 'es-ES'
-    const v = currentVoices.find(v => v.name === currentVoiceName)
+    const v = vList.find(v => v.name === vName)
     if (v) u.voice = v
 
     u.onend = () => {
       if (speakingRef.current) {
-        speakFrom(fromIdx + 1, currentSentences, currentVoices, currentVoiceName, currentRate, currentPitch)
+        speakSentence(idx + 1, sents, vList, vName, r, p)
       }
     }
     u.onerror = (e) => {
-      if (e.error !== 'interrupted') {
-        console.error('TTS error', e)
-      }
-      if (speakingRef.current) {
-        speakFrom(fromIdx + 1, currentSentences, currentVoices, currentVoiceName, currentRate, currentPitch)
+      if (e.error !== 'interrupted' && speakingRef.current) {
+        speakSentence(idx + 1, sents, vList, vName, r, p)
       }
     }
 
@@ -131,7 +129,7 @@ export default function Page() {
     speakingRef.current = true
     setSpeaking(true)
 
-    // Android Chrome bug: TTS pauses after ~14 sec. keepAlive forces resume.
+    // Android Chrome keepAlive fix
     if (keepAliveRef.current) clearInterval(keepAliveRef.current)
     keepAliveRef.current = setInterval(() => {
       if (speakingRef.current && synth.speaking && synth.paused) {
@@ -139,18 +137,27 @@ export default function Page() {
       }
     }, 5000)
 
-    speakFrom(fromIdx, sentences, voices, voiceName, rate, pitch)
-  }, [sentences, voices, voiceName, rate, pitch, speakFrom])
+    speakSentence(fromIdx, sentences, voiceList, voiceName, rate, pitch)
+  }, [sentences, voiceList, voiceName, rate, pitch, speakSentence])
+
+  const goTo = useCallback((idx: number) => {
+    const clamped = Math.max(0, Math.min(idx, sentences.length - 1))
+    setSentenceIdx(clamped)
+    sentenceIdxRef.current = clamped
+    if (speaking) {
+      startReading(clamped)
+    }
+  }, [speaking, sentences.length, startReading])
 
   const doExtract = async () => {
-    setError(undefined); setBusy(true); setData(undefined); setSentenceIdx(0);
+    setError(undefined); setBusy(true); setData(undefined); setSentenceIdx(0)
     try {
       if (mode === 'pdf') {
         if (!pdf) throw new Error('Adjuntá un PDF')
         const arrayBuffer = await pdf.arrayBuffer()
         const pdfjsLib = await import('pdfjs-dist')
         pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
-        
+
         const loadingTask = pdfjsLib.getDocument(arrayBuffer)
         const pdfDoc = await loadingTask.promise
         let rawText = ''
@@ -165,14 +172,11 @@ export default function Page() {
           for (const item of textContent.items as any[]) {
             const currentX = item.transform[4]
             const currentY = item.transform[5]
-            // Font size derived from the transform matrix (scale component)
             const fontSize = Math.hypot(item.transform[0], item.transform[1]) || 12
             if (lastY !== undefined && Math.abs(lastY - currentY) > 5) {
               pageStr += '\n'
             } else if (lastY !== undefined) {
               const distance = currentX - (lastX + lastWidth)
-              // A real word space is typically >= 20% of the font size.
-              // Tracking (letter-spacing in headings) is usually < 15%, so we ignore it.
               const spaceThreshold = lastFontSize * 0.20
               if (distance > spaceThreshold) {
                 pageStr += ' '
@@ -186,41 +190,31 @@ export default function Page() {
           }
           rawText += pageStr + '\n\n'
         }
-        
+
         const { normalizePdfText } = await import('@/lib/extract/normalize')
         const text = normalizePdfText(rawText)
-        
-        setData({
-          title: pdf.name,
-          text,
-          truncated: false,
-          totalLength: text.length,
-          source: { type: 'pdf', name: pdf.name }
-        })
+        setData({ title: pdf.name, text, truncated: false, totalLength: text.length, source: { type: 'pdf', name: pdf.name } })
+
       } else {
         const fd = new FormData()
         if (mode === 'web') {
           if (!url) throw new Error('Ingresá una URL válida')
-          fd.append('source', 'web')
-          fd.append('url', url)
+          fd.append('source', 'web'); fd.append('url', url)
         } else {
           if (!epub) throw new Error('Adjuntá un EPUB (*.epub)')
-          fd.append('source', 'epub')
-          fd.append('file', epub)
+          fd.append('source', 'epub'); fd.append('file', epub)
         }
         const res = await fetch('/api/extract', { method: 'POST', body: fd })
         if (!res.ok) throw new Error(await res.text())
-        const json = await res.json() as ExtractResponse
-        setData(json)
+        setData(await res.json() as ExtractResponse)
       }
-    } catch (e:any) {
+    } catch (e: any) {
       setError(e.message || 'Error al extraer contenido')
     } finally {
       setBusy(false)
     }
   }
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       speakingRef.current = false
@@ -234,13 +228,14 @@ export default function Page() {
   return (
     <div className="container">
       <h1>Text2Audio PWA</h1>
-      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio con lectura en el navegador y control de avance.</p>
+      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio con lectura sincronizada.</p>
 
-      <div className="card" style={{marginTop: '1rem'}}>
-        <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
-          <button onClick={() => setMode('pdf')} disabled={mode==='pdf'}>PDF</button>
-          <button onClick={() => setMode('web')} disabled={mode==='web'}>Web</button>
-          <button onClick={() => setMode('epub')} disabled={mode==='epub'}>EPUB</button>
+      {/* Source selection */}
+      <div className="card" style={{ marginTop: '1rem' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button onClick={() => setMode('pdf')} disabled={mode === 'pdf'}>PDF</button>
+          <button onClick={() => setMode('web')} disabled={mode === 'web'}>Web</button>
+          <button onClick={() => setMode('epub')} disabled={mode === 'epub'}>EPUB</button>
         </div>
         {mode === 'pdf' && <div>
           <label>Adjuntar PDF</label>
@@ -255,102 +250,130 @@ export default function Page() {
           <label>Adjuntar EPUB</label>
           <input type="file" accept=".epub" onChange={e => setEpub(e.target.files?.[0] || null)} />
         </div>}
-
-        <div style={{display:'flex', gap: 8, marginTop: 12}}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           <button onClick={doExtract} disabled={busy}>{busy ? 'Procesando...' : 'Extraer texto'}</button>
         </div>
-        {error && <p style={{color: '#fca5a5', marginTop: 8}}>{error}</p>}
+        {error && <p style={{ color: '#fca5a5', marginTop: 8 }}>{error}</p>}
       </div>
 
-      {data && <div className="card" style={{marginTop: '1rem'}}>
-        <h2>{data.title || 'Contenido extraído'}</h2>
-        <p className="small">Caracteres: {data.text.length.toLocaleString()} &nbsp;|&nbsp; Frases: {sentences.length.toLocaleString()}</p>
-        {data.truncated && <p style={{color: '#fbbf24', marginTop: 8, backgroundColor: 'rgba(251, 191, 36, 0.1)', padding: '0.75rem', borderRadius: '0.5rem'}}>
-          ⚠️ Contenido muy grande ({(data.totalLength || 0).toLocaleString()} caracteres). Se muestra solo los primeros {data.text.length.toLocaleString()} caracteres.
-        </p>}
-        
-        <div className="row" style={{marginTop: 16}}>
-          <div>
-            <label>Voz</label>
-            <select value={voiceName} onChange={e => setVoiceName(e.target.value)}>
-              <option value="">Sistema (depende del SO)</option>
-              {voices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
-            </select>
-          </div>
-          <div>
-            <label>Velocidad: {rate.toFixed(1)}x</label>
-            <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => setRate(parseFloat(e.target.value))} />
-          </div>
-        </div>
-        <div className="row">
-          <div>
-            <label>Tono: {pitch.toFixed(1)}</label>
-            <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={e => setPitch(parseFloat(e.target.value))} />
-          </div>
-        </div>
+      {/* Player */}
+      {data && (
+        <div className="card" style={{ marginTop: '1rem' }}>
+          <h2>{data.title || 'Contenido extraído'}</h2>
+          <p className="small">
+            {data.text.length.toLocaleString()} caracteres &nbsp;|&nbsp; {sentences.length.toLocaleString()} frases
+          </p>
 
-        {/* Progress bar */}
-        <div style={{marginTop: 16}}>
-          <label>Progreso: {progressPct}% &nbsp;(frase {sentenceIdx + 1} de {sentences.length})</label>
-          <input 
-            type="range" 
-            min="0" 
-            max={Math.max(sentences.length - 1, 0)} 
-            value={sentenceIdx} 
-            onChange={e => {
-              const val = parseInt(e.target.value)
-              setSentenceIdx(val)
-              sentenceIdxRef.current = val
-              if (speaking) {
-                startReading(val)
-              }
-            }} 
-            style={{ width: '100%' }}
-          />
-        </div>
+          {/* Voice & speed controls */}
+          <div className="row" style={{ marginTop: 12 }}>
+            <div>
+              <label>Voz</label>
+              <select value={voiceName} onChange={e => setVoiceName(e.target.value)}>
+                <option value="">Sistema (depende del SO)</option>
+                {voiceList.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Velocidad: {rate.toFixed(1)}x</label>
+              <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => setRate(parseFloat(e.target.value))} />
+            </div>
+          </div>
+          <div className="row">
+            <div>
+              <label>Tono: {pitch.toFixed(1)}</label>
+              <input type="range" min="0.5" max="2" step="0.1" value={pitch} onChange={e => setPitch(parseFloat(e.target.value))} />
+            </div>
+          </div>
 
-        <div style={{display:'flex', gap: 8, marginTop: 12}}>
-          {!speaking 
-            ? <button onClick={() => startReading(sentenceIdx)}>▶ Leer en el navegador</button> 
-            : <button onClick={stopSpeaking}>⏹ Detener</button>
-          }
-        </div>
-        <hr/>
-        
-        {/* Current sentence highlight */}
-        <div style={{
-          padding: '0.75rem 1rem',
-          backgroundColor: '#1e3a5f',
-          borderRadius: '6px',
-          marginBottom: '0.5rem',
-          fontSize: '1.05rem',
-          lineHeight: '1.6',
-          color: '#e0f2fe',
-          minHeight: '3rem'
-        }}>
-          {sentences[sentenceIdx] || ''}
-        </div>
+          {/* Progress slider */}
+          <div style={{ marginTop: 14 }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Progreso: {progressPct}%</span>
+              <span style={{ color: '#94a3b8' }}>frase {sentenceIdx + 1} / {sentences.length}</span>
+            </label>
+            <input
+              type="range"
+              min="0"
+              max={Math.max(sentences.length - 1, 0)}
+              value={sentenceIdx}
+              onChange={e => goTo(parseInt(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
 
-        {/* Full text view */}
-        <div style={{
-          whiteSpace: 'pre-wrap', 
-          maxHeight: '250px', 
-          overflowY: 'auto', 
-          padding: '1rem', 
-          border: '1px solid #333', 
-          borderRadius: '4px',
-          backgroundColor: '#111',
-          fontFamily: 'monospace',
-          lineHeight: '1.5',
-          fontSize: '0.85rem'
-        }}>
-          <span style={{ color: '#555' }}>{data.text.slice(0, charOffset)}</span>
-          <span style={{ backgroundColor: '#2563eb', color: '#fff', borderRadius: '2px', padding: '0 2px' }}>
+          {/* Playback controls */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => goTo(sentenceIdx - 1)}
+              title="Frase anterior"
+              style={{ fontSize: '1.2rem', padding: '6px 14px' }}
+            >⏮</button>
+
+            {!speaking
+              ? <button onClick={() => startReading(sentenceIdx)} style={{ flex: 1 }}>▶ Leer</button>
+              : <button onClick={stopSpeaking} style={{ flex: 1 }}>⏹ Detener</button>
+            }
+
+            <button
+              onClick={() => goTo(sentenceIdx + 1)}
+              title="Frase siguiente"
+              style={{ fontSize: '1.2rem', padding: '6px 14px' }}
+            >⏭</button>
+          </div>
+
+          <hr />
+
+          {/* Current sentence highlight box */}
+          <div style={{
+            padding: '0.85rem 1rem',
+            backgroundColor: '#1e3a5f',
+            borderLeft: '4px solid #3b82f6',
+            borderRadius: '6px',
+            marginBottom: '0.75rem',
+            fontSize: '1.05rem',
+            lineHeight: '1.7',
+            color: '#e0f2fe',
+            minHeight: '3.5rem'
+          }}>
             {sentences[sentenceIdx] || ''}
-          </span>
-          <span style={{ color: '#aaa' }}>{data.text.slice(charOffset + (sentences[sentenceIdx]?.length ?? 0))}</span>
+          </div>
+
+          {/* Scrollable full-text with per-sentence click */}
+          <div style={{
+            maxHeight: '320px',
+            overflowY: 'auto',
+            padding: '0.75rem',
+            border: '1px solid #334155',
+            borderRadius: '6px',
+            backgroundColor: '#0f172a',
+            lineHeight: '1.7',
+            fontSize: '0.88rem'
+          }}>
+            {sentences.map((s, i) => (
+              <div
+                key={i}
+                ref={el => { sentenceDivRefs.current[i] = el }}
+                onClick={() => goTo(i)}
+                title="Clic para leer desde aquí"
+                style={{
+                  display: 'inline',
+                  cursor: 'pointer',
+                  backgroundColor: i === sentenceIdx ? '#2563eb' : 'transparent',
+                  color: i < sentenceIdx ? '#475569' : i === sentenceIdx ? '#ffffff' : '#cbd5e1',
+                  borderRadius: '3px',
+                  padding: i === sentenceIdx ? '1px 3px' : '0',
+                  transition: 'background-color 0.2s',
+                }}
+              >
+                {s}{' '}
+              </div>
+            ))}
+          </div>
+          <p className="small" style={{ marginTop: 6, color: '#64748b' }}>
+            💡 Toca cualquier frase para saltar a ella y comenzar la lectura desde ese punto.
+          </p>
         </div>
-      </div>}
+      )}
     </div>
   )
 }
