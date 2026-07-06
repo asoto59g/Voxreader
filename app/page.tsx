@@ -68,8 +68,9 @@ export default function Page() {
               pageStr += '\n'
             } else if (lastY !== undefined) {
               const distance = currentX - (lastX + lastWidth)
-              // Solo agregamos espacio si hay una separación física real entre caracteres
-              if (distance > 2) {
+              // Una separación de espacio real usualmente es mayor a 4 puntos.
+              // Las letras separadas por estilo ("tracking") suelen estar a 1 o 2 puntos.
+              if (distance > 4) {
                 pageStr += ' '
               }
             }
@@ -122,6 +123,7 @@ export default function Page() {
     const u = new SpeechSynthesisUtterance(data.text.slice(0, 30000)) // limit for browser stability
     u.rate = rate
     u.pitch = pitch
+    u.lang = 'es-ES' // Forzar idioma español por defecto
     const v = voices.find(v => v.name === voiceName)
     if (v) u.voice = v
     u.onend = () => setSpeaking(false)
