@@ -11,6 +11,7 @@
     "@mozilla/readability": "^0.5.0",
     "epub": "^1.2.0",
     "jsdom": "^24.0.0",
+    "jszip": "^3.10.1",
     "next": "14.1.0",
     "openai": "^4.28.4",
     "pdf-parse": "^1.1.1",
@@ -20,6 +21,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/node": "^20.11.24",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
