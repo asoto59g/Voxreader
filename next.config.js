@@ -1,24 +1,26 @@
 /** @type {import('next').NextConfig} */
+const path = require('path')
+
 const nextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      allowedOrigins: ['localhost:3000']
+    }
+  },
+  webpack: (config) => {
+    config.resolve.alias['@'] = path.join(__dirname)
+    return config
+  },
   headers: async () => {
     return [
       {
         source: '/sw.js',
-        headers: [{ key: 'Cache-Control', value: 'no-store' }]
+        headers: [
+          { key: 'Cache-Control', value: 'no-store' }
+        ]
       }
     ]
-  },
-  webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      'original-fs': false,
-      'zipfile': false,
-      'aws-sdk': false,
-      'nock': false,
-      'mock-aws-s3': false
-    }
-    return config
   }
 }
 module.exports = nextConfig
