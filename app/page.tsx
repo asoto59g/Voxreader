@@ -45,24 +45,59 @@ export default function Page() {
   const doExtract = async () => {
     setError(undefined); setBusy(true); setData(undefined); setMp3Url(undefined)
     try {
-      const fd = new FormData()
       if (mode === 'pdf') {
         if (!pdf) throw new Error('Adjuntá un PDF')
-        fd.append('source', 'pdf')
-        fd.append('file', pdf)
-      } else if (mode === 'web') {
-        if (!url) throw new Error('Ingresá una URL válida')
-        fd.append('source', 'web')
-        fd.append('url', url)
+        const arrayBuffer = await pdf.arrayBuffer()
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+        
+        const loadingTask = pdfjsLib.getDocument(arrayBuffer)
+        const pdfDoc = await loadingTask.promise
+        let rawText = ''
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i)
+          const textContent = await page.getTextContent()
+          let lastY
+          let pageStr = ''
+          for (const item of textContent.items as any[]) {
+            if (lastY !== undefined && Math.abs(lastY - item.transform[5]) > 2) {
+              pageStr += '\n'
+            } else if (lastY !== undefined) {
+              pageStr += ' ' // adds space between items on same line
+            }
+            pageStr += item.str
+            lastY = item.transform[5]
+          }
+          rawText += pageStr + '\n\n'
+        }
+        
+        // Dynamic import to avoid next.js bundling issues with node modules in some contexts if any
+        const { normalizePdfText } = await import('@/lib/extract/normalize')
+        const text = normalizePdfText(rawText)
+        
+        setData({
+          title: pdf.name,
+          text,
+          truncated: false,
+          totalLength: text.length,
+          source: { type: 'pdf', name: pdf.name }
+        })
       } else {
-        if (!epub) throw new Error('Adjuntá un EPUB (*.epub)')
-        fd.append('source', 'epub')
-        fd.append('file', epub)
+        const fd = new FormData()
+        if (mode === 'web') {
+          if (!url) throw new Error('Ingresá una URL válida')
+          fd.append('source', 'web')
+          fd.append('url', url)
+        } else {
+          if (!epub) throw new Error('Adjuntá un EPUB (*.epub)')
+          fd.append('source', 'epub')
+          fd.append('file', epub)
+        }
+        const res = await fetch('/api/extract', { method: 'POST', body: fd })
+        if (!res.ok) throw new Error(await res.text())
+        const json = await res.json() as ExtractResponse
+        setData(json)
       }
-      const res = await fetch('/api/extract', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(await res.text())
-      const json = await res.json() as ExtractResponse
-      setData(json)
     } catch (e:any) {
       setError(e.message || 'Error al extraer contenido')
     } finally {
