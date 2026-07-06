@@ -5,6 +5,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 type ExtractResponse = {
   title?: string
   text: string
+  truncated?: boolean
+  totalLength?: number
   source?: { type: 'pdf' | 'web' | 'epub', url?: string, name?: string }
 }
 
@@ -143,6 +145,9 @@ export default function Page() {
       {data && <div className="card" style={{marginTop: '1rem'}}>
         <h2>{data.title || 'Contenido extraído'}</h2>
         <p className="small">Caracteres: {data.text.length.toLocaleString()}</p>
+        {data.truncated && <p style={{color: '#fbbf24', marginTop: 8, backgroundColor: 'rgba(251, 191, 36, 0.1)', padding: '0.75rem', borderRadius: '0.5rem'}}>
+          ⚠️ Contenido muy grande ({(data.totalLength || 0).toLocaleString()} caracteres). Se muestra solo los primeros {data.text.length.toLocaleString()} caracteres. Para procesar archivos más grandes, divídilo en partes.
+        </p>}
         <div className="row">
           <div>
             <label>Voz</label>
