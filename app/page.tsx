@@ -160,15 +160,21 @@ export default function Page() {
           let lastY: number | undefined = undefined
           let lastX = 0
           let lastWidth = 0
+          let lastFontSize = 12
           let pageStr = ''
           for (const item of textContent.items as any[]) {
             const currentX = item.transform[4]
             const currentY = item.transform[5]
+            // Font size derived from the transform matrix (scale component)
+            const fontSize = Math.hypot(item.transform[0], item.transform[1]) || 12
             if (lastY !== undefined && Math.abs(lastY - currentY) > 5) {
               pageStr += '\n'
             } else if (lastY !== undefined) {
               const distance = currentX - (lastX + lastWidth)
-              if (distance > 4) {
+              // A real word space is typically >= 20% of the font size.
+              // Tracking (letter-spacing in headings) is usually < 15%, so we ignore it.
+              const spaceThreshold = lastFontSize * 0.20
+              if (distance > spaceThreshold) {
                 pageStr += ' '
               }
             }
@@ -176,6 +182,7 @@ export default function Page() {
             lastY = currentY
             lastX = currentX
             lastWidth = item.width
+            lastFontSize = fontSize
           }
           rawText += pageStr + '\n\n'
         }
