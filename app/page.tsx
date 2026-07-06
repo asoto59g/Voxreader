@@ -23,7 +23,7 @@ export default function Page() {
   const [voiceName, setVoiceName] = useState<string>('')
   const [speaking, setSpeaking] = useState(false)
   const utteranceRef = useRef<SpeechSynthesisUtterance|null>(null)
-  const [mp3Url, setMp3Url] = useState<string|undefined>(undefined)
+  const [charIndex, setCharIndex] = useState(0)
 
   const voices = useMemo(() => {
     if (typeof window === 'undefined') return []
@@ -34,7 +34,6 @@ export default function Page() {
     if (typeof window === 'undefined') return
     const synth = window.speechSynthesis
     const onvoiceschanged = () => {
-      // trigger re-render
       setSpeaking(s => !s)
       setSpeaking(s => !s)
     }
@@ -43,7 +42,7 @@ export default function Page() {
   }, [])
 
   const doExtract = async () => {
-    setError(undefined); setBusy(true); setData(undefined); setMp3Url(undefined)
+    setError(undefined); setBusy(true); setData(undefined); setCharIndex(0);
     try {
       if (mode === 'pdf') {
         if (!pdf) throw new Error('Adjuntá un PDF')
@@ -57,7 +56,7 @@ export default function Page() {
         for (let i = 1; i <= pdfDoc.numPages; i++) {
           const page = await pdfDoc.getPage(i)
           const textContent = await page.getTextContent()
-          let lastY
+          let lastY = undefined
           let lastX = 0
           let lastWidth = 0
           let pageStr = ''
@@ -68,8 +67,6 @@ export default function Page() {
               pageStr += '\n'
             } else if (lastY !== undefined) {
               const distance = currentX - (lastX + lastWidth)
-              // Una separación de espacio real usualmente es mayor a 4 puntos.
-              // Las letras separadas por estilo ("tracking") suelen estar a 1 o 2 puntos.
               if (distance > 4) {
                 pageStr += ' '
               }
@@ -82,7 +79,6 @@ export default function Page() {
           rawText += pageStr + '\n\n'
         }
         
-        // Dynamic import to avoid next.js bundling issues with node modules in some contexts if any
         const { normalizePdfText } = await import('@/lib/extract/normalize')
         const text = normalizePdfText(rawText)
         
@@ -116,11 +112,13 @@ export default function Page() {
     }
   }
 
-  const readAloud = () => {
+  const playFrom = (startIndex: number) => {
     if (!data?.text) return
     const synth = window.speechSynthesis
     synth.cancel()
-    const u = new SpeechSynthesisUtterance(data.text.slice(0, 30000)) // limit for browser stability
+    
+    // limit for browser stability
+    const u = new SpeechSynthesisUtterance(data.text.slice(startIndex, startIndex + 30000))
     u.rate = rate
     u.pitch = pitch
     u.lang = 'es-ES' // Forzar idioma español por defecto
@@ -128,9 +126,18 @@ export default function Page() {
     if (v) u.voice = v
     u.onend = () => setSpeaking(false)
     u.onerror = (e) => { console.error(e); setSpeaking(false) }
+    u.onboundary = (e) => {
+      if (e.name === 'word') {
+        setCharIndex(startIndex + e.charIndex)
+      }
+    }
     utteranceRef.current = u
     setSpeaking(true)
     synth.speak(u)
+  }
+
+  const readAloud = () => {
+    playFrom(charIndex)
   }
 
   const stop = () => {
@@ -138,30 +145,10 @@ export default function Page() {
     setSpeaking(false)
   }
 
-  const generateMp3 = async () => {
-    if (!data?.text) return
-    setBusy(true); setError(undefined); setMp3Url(undefined)
-    try {
-      const res = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        provider: 'openai',
-        voice: 'alloy',
-        text: data.text.slice(0, 4000) // keep demo-friendly, chunking can be added
-      }) })
-      if (!res.ok) throw new Error(await res.text())
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      setMp3Url(url)
-    } catch (e:any) {
-      setError(e.message || 'Error generando MP3 (configurá OPENAI_API_KEY)')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <div className="container">
       <h1>Text2Audio PWA</h1>
-      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio. Modo rápido: lectura en el navegador. MP3 opcional con un proveedor TTS.</p>
+      <p className="small">Convierte texto (PDF, páginas web, EPUB) a audio con lectura en el navegador y control de avance.</p>
 
       <div className="card" style={{marginTop: '1rem'}}>
         <div style={{display: 'flex', gap: 8, marginBottom: 12}}>
@@ -195,7 +182,8 @@ export default function Page() {
         {data.truncated && <p style={{color: '#fbbf24', marginTop: 8, backgroundColor: 'rgba(251, 191, 36, 0.1)', padding: '0.75rem', borderRadius: '0.5rem'}}>
           ⚠️ Contenido muy grande ({(data.totalLength || 0).toLocaleString()} caracteres). Se muestra solo los primeros {data.text.length.toLocaleString()} caracteres. Para procesar archivos más grandes, divídilo en partes.
         </p>}
-        <div className="row">
+        
+        <div className="row" style={{marginTop: 16}}>
           <div>
             <label>Voz</label>
             <select value={voiceName} onChange={e => setVoiceName(e.target.value)}>
@@ -215,16 +203,44 @@ export default function Page() {
           </div>
         </div>
 
+        <div style={{marginTop: 16}}>
+          <label>Progreso de Lectura: {data.text.length > 0 ? Math.round((charIndex / data.text.length) * 100) : 0}%</label>
+          <input 
+            type="range" 
+            min="0" 
+            max={data.text.length} 
+            value={charIndex} 
+            onChange={e => {
+              const val = parseInt(e.target.value)
+              setCharIndex(val)
+              if (speaking) {
+                playFrom(val)
+              }
+            }} 
+            style={{ width: '100%' }}
+          />
+        </div>
+
         <div style={{display:'flex', gap: 8, marginTop: 12}}>
           {!speaking ? <button onClick={readAloud}>Leer en el navegador</button> : <button onClick={stop}>Detener</button>}
-          <button onClick={generateMp3} disabled={busy}>Generar MP3 (OpenAI)</button>
         </div>
-        {mp3Url && <div style={{marginTop: 12}}>
-          <audio controls src={mp3Url} />
-          <div><a href={mp3Url} download={(data.title || 'audio')+'.mp3'}>Descargar MP3</a></div>
-        </div>}
         <hr/>
-        <textarea readOnly value={data.text} rows={16} />
+        
+        <div style={{
+          whiteSpace: 'pre-wrap', 
+          maxHeight: '300px', 
+          overflowY: 'auto', 
+          padding: '1rem', 
+          border: '1px solid #333', 
+          borderRadius: '4px',
+          backgroundColor: '#111',
+          fontFamily: 'monospace',
+          lineHeight: '1.5'
+        }}>
+          <span style={{ color: '#888' }}>{data.text.slice(0, charIndex)}</span>
+          <span style={{ backgroundColor: '#2563eb', color: '#fff' }}>{data.text.slice(charIndex, charIndex + 30)}</span>
+          <span style={{ color: '#ddd' }}>{data.text.slice(charIndex + 30)}</span>
+        </div>
       </div>}
     </div>
   )
