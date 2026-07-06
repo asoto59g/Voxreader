@@ -58,15 +58,25 @@ export default function Page() {
           const page = await pdfDoc.getPage(i)
           const textContent = await page.getTextContent()
           let lastY
+          let lastX = 0
+          let lastWidth = 0
           let pageStr = ''
           for (const item of textContent.items as any[]) {
-            if (lastY !== undefined && Math.abs(lastY - item.transform[5]) > 2) {
+            const currentX = item.transform[4]
+            const currentY = item.transform[5]
+            if (lastY !== undefined && Math.abs(lastY - currentY) > 5) {
               pageStr += '\n'
             } else if (lastY !== undefined) {
-              pageStr += ' ' // adds space between items on same line
+              const distance = currentX - (lastX + lastWidth)
+              // Solo agregamos espacio si hay una separación física real entre caracteres
+              if (distance > 2) {
+                pageStr += ' '
+              }
             }
             pageStr += item.str
-            lastY = item.transform[5]
+            lastY = currentY
+            lastX = currentX
+            lastWidth = item.width
           }
           rawText += pageStr + '\n\n'
         }
@@ -109,7 +119,7 @@ export default function Page() {
     if (!data?.text) return
     const synth = window.speechSynthesis
     synth.cancel()
-    const u = new SpeechSynthesisUtterance(data.text.slice(0, 200000)) // limit for demo
+    const u = new SpeechSynthesisUtterance(data.text.slice(0, 30000)) // limit for browser stability
     u.rate = rate
     u.pitch = pitch
     const v = voices.find(v => v.name === voiceName)
